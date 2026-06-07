@@ -1,0 +1,20 @@
+[package]
+name = "openterface-cli"
+description = "Command-line frontend for openterface-rs (the `openterface-rs` binary)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "openterface-rs"
+path = "src/main.rs"
+
+[dependencies]
+openterface-core.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,16 @@
+[package]
+name = "openterface-gui"
+description = "Wayland (winit) + wgpu display frontend for openterface-rs."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[dependencies]
+openterface-core.workspace = true
+
+[lints]
+workspace = true

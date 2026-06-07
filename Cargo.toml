@@ -1,0 +1,40 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/openterface-core",
+    "crates/openterface-cli",
+    "crates/openterface-gui",
+    "crates/openterface-test-support",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.95"
+license = "Apache-2.0"
+repository = "https://github.com/vicondoa/openterface-rs"
+homepage = "https://github.com/vicondoa/openterface-rs"
+authors = ["openterface-rs contributors"]
+
+[workspace.dependencies]
+openterface-core = { path = "crates/openterface-core", version = "0.0.0" }
+openterface-test-support = { path = "crates/openterface-test-support", version = "0.0.0" }
+thiserror = "1"
+tracing = "0.1"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+# Faster, leaner local iteration; tune as the project grows.
+[profile.dev]
+opt-level = 0
+debug = 1
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
