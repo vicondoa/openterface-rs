@@ -17,16 +17,15 @@
    `cargo clippy --all-targets -- -D warnings`, `cargo test` (and `nextest`
    once wired).
 
-**Current status:** `W0 — Foundation` — implementation complete and committed;
-work-review panel gate in progress (fix round `W0fu1`). Remaining: repo
-creation + branch protection, then advance to W1.
+**Current status:** `W0 — Foundation` **complete** (panel 5/5, repo created +
+protected, CI green). Next: `W1 — Spikes + behavioral spec`.
 
 ---
 
 ## Process invariants (apply to every wave)
 
 - [x] Toolchain available (Rust 1.95 via nix profile: cargo/rustc/clippy/rustfmt).
-- [ ] `main` is protected after initial setup: branches → PR → squash-merge,
+- [x] `main` is protected after initial setup: branches → PR → squash-merge,
       CI gating, self-merge allowed (required approvals = 0), direct pushes blocked.
 - [ ] Each wave: plan-review panel gate → dispatch → integrate → work-review
       panel gate → advance. Unanimous `N/N` sign-off; green tests do **not**
@@ -83,9 +82,9 @@ CI, license/docs stubs, and the public repo created + protected.*
 - [x] `cargo clippy --all-targets -- -D warnings` clean.
 - [x] `cargo test` green (no hardware) — 12 tests.
 - [x] Initial commit.
-- [ ] Create public repo `github.com/vicondoa/openterface-rs` + push.
-- [ ] Enable branch protection (approvals = 0, block direct pushes).
-- [ ] **W0 panel gate** (rust, build-ci, security, docs, test) — unanimous.
+- [x] Create public repo `github.com/vicondoa/openterface-rs` + push.
+- [x] Enable branch protection (approvals = 0, block direct pushes).
+- [x] **W0 panel gate** (rust, build-ci, security, docs, test) — unanimous 5/5.
 
 ---
 
@@ -146,4 +145,7 @@ CI, license/docs stubs, and the public repo created + protected.*
 
 _Append a one-line entry when a wave closes (date, wave, panel result, notes)._
 
-- _(none yet)_
+- **2026-06-07 — W0 Foundation — CLOSED.** Panel 5/5 (rust, test, security, build-ci, docs);
+  `W0fu1` fixed CI toolchain pin + PLAN sync + rustdoc link, re-confirmed on GPT-5.5.
+  Public repo created, main protected (PR + CI, 0 approvals, no direct push), CI green.
+  12 hardware-free tests. Commits `07290a0`, `089cbe0`.
