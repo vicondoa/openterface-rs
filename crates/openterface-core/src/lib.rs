@@ -4,7 +4,7 @@
 //! physical device. Everything that touches hardware is expressed as a trait
 //! ([`serial::SerialTransport`], [`video::VideoSource`],
 //! [`discovery::DeviceScanner`]) so the full pipeline can be exercised against
-//! simulated devices in [`openterface-test-support`]. This is what lets the
+//! simulated devices in the `openterface-test-support` crate. This is what lets the
 //! test-suite run with **zero hardware**.
 //!
 //! ## Module map

@@ -17,7 +17,9 @@
    `cargo clippy --all-targets -- -D warnings`, `cargo test` (and `nextest`
    once wired).
 
-**Current status:** `W0 — Foundation` (in progress).
+**Current status:** `W0 — Foundation` — implementation complete and committed;
+work-review panel gate in progress (fix round `W0fu1`). Remaining: repo
+creation + branch protection, then advance to W1.
 
 ---
 
@@ -52,35 +54,35 @@ CI, license/docs stubs, and the public repo created + protected.*
 - [x] `error.rs` (`Error` / `Result`).
 - [x] `device.rs` (USB identity constants + `is_serial_device`/`is_video_device` + tests).
 - [x] `event.rs` (`InputEvent`, `Modifiers`, `MouseButton`, `AbsPosition`, release/move helpers + tests).
-- [ ] `serial/mod.rs` (`SerialTransport` trait + baud constants).
-- [ ] `video/mod.rs` (`VideoSource` trait, `Frame`, `PixelFormat`, `CaptureConfig`, `FormatDesc`).
-- [ ] `discovery/mod.rs` (`DeviceScanner` trait + `DeviceInfo`).
-- [ ] `decode/mod.rs` (`RgbaImage` + stub `decode_frame` for W2.3).
-- [ ] `protocol/mod.rs` + `protocol/ch9329.rs` (frame prefix + checksum + test) + `protocol/hid.rs` (stub).
-- [ ] `input/mod.rs` (stub for W3).
-- [ ] `pacing/mod.rs` (`PacingConfig`, `DEFAULT_MOUSE_INTERVAL` 33ms, `from_env` + test).
-- [ ] `session/mod.rs` (stub for W3.2).
+- [x] `serial/mod.rs` (`SerialTransport` trait + baud constants).
+- [x] `video/mod.rs` (`VideoSource` trait, `Frame`, `PixelFormat`, `CaptureConfig`, `FormatDesc`).
+- [x] `discovery/mod.rs` (`DeviceScanner` trait + `DeviceInfo`).
+- [x] `decode/mod.rs` (`RgbaImage` + stub `decode_frame` for W2.3).
+- [x] `protocol/mod.rs` + `protocol/ch9329.rs` (frame prefix + checksum + test) + `protocol/hid.rs` (stub).
+- [x] `input/mod.rs` (stub for W3).
+- [x] `pacing/mod.rs` (`PacingConfig`, `DEFAULT_MOUSE_INTERVAL` 33ms, `from_env` + test).
+- [x] `session/mod.rs` (stub for W3.2).
 
 ### Other crates (skeletons)
-- [ ] `openterface-cli` (`Cargo.toml` + `main.rs` printing version).
-- [ ] `openterface-gui` (`Cargo.toml` + `lib.rs` stub; winit/wgpu deferred to W4.2).
-- [ ] `openterface-test-support` (`MockSerial`, `SimulatedVideoSource`, `FixtureScanner`).
+- [x] `openterface-cli` (`Cargo.toml` + `main.rs` printing version).
+- [x] `openterface-gui` (`Cargo.toml` + `lib.rs` stub; winit/wgpu deferred to W4.2).
+- [x] `openterface-test-support` (`MockSerial`, `SimulatedVideoSource`, `FixtureScanner`).
 
 ### Tooling, docs, process
-- [ ] CI workflow `.github/workflows/ci.yml` (fmt, clippy `-D warnings`, build, nextest, cargo-deny/audit).
-- [ ] `deny.toml` (cargo-deny config).
-- [ ] `flake.nix` dev shell (toolchain + system libs).
-- [ ] `LICENSE` (Apache-2.0).
-- [ ] Doc stubs: `README.md`, `ARCHITECTURE.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md`.
-- [ ] `AGENTS.md` (panel review, versioning, commit conventions, test layout).
-- [ ] `panel-roles/*.md` (rust, protocol, video, input, test, security, product, docs, build-ci, parity).
-- [ ] `tools/kvm-debug.sh` harness skeleton.
+- [x] CI workflow `.github/workflows/ci.yml` (fmt, clippy `-D warnings`, build, nextest, cargo-deny/audit).
+- [x] `deny.toml` (cargo-deny config).
+- [x] `flake.nix` dev shell (toolchain + system libs).
+- [x] `LICENSE` (Apache-2.0).
+- [x] Doc stubs: `README.md`, `ARCHITECTURE.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md`.
+- [x] `AGENTS.md` (panel review, versioning, commit conventions, test layout).
+- [x] `panel-roles/*.md` (rust, protocol, video, input, test, security, product, docs, build-ci, parity).
+- [x] `tools/kvm-debug.sh` harness skeleton.
 
 ### Green + publish
-- [ ] `cargo fmt --check` clean.
-- [ ] `cargo clippy --all-targets -- -D warnings` clean.
-- [ ] `cargo test` green (no hardware).
-- [ ] Initial commit.
+- [x] `cargo fmt --check` clean.
+- [x] `cargo clippy --all-targets -- -D warnings` clean.
+- [x] `cargo test` green (no hardware) — 12 tests.
+- [x] Initial commit.
 - [ ] Create public repo `github.com/vicondoa/openterface-rs` + push.
 - [ ] Enable branch protection (approvals = 0, block direct pushes).
 - [ ] **W0 panel gate** (rust, build-ci, security, docs, test) — unanimous.
