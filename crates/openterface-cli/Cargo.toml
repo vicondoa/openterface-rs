@@ -15,6 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 openterface-core.workspace = true
+clap = { version = "4", features = ["derive"] }
 
 [lints]
 workspace = true
