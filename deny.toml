@@ -25,6 +25,9 @@ confidence-threshold = 0.9
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Intra-workspace path dependencies (e.g. the test-support dev-dependency) have
+# no version requirement; that is not a real wildcard-version risk.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"
