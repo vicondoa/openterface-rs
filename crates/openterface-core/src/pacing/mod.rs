@@ -88,6 +88,10 @@ pub struct PacingScheduler {
     buttons: ButtonMask,
     /// Last known absolute position (so button events can re-send position).
     last_abs: Option<AbsPosition>,
+    /// Whether the most recent motion was relative. Button/scroll frames follow
+    /// the active mode so a stale absolute coordinate is never re-asserted after
+    /// the session has switched to relative motion.
+    relative_mode: bool,
     /// Non-modifier HID usages currently held (the 6-key report array).
     held_keys: Vec<HidUsage>,
     /// Current modifier byte (from the latest key event).
@@ -105,6 +109,7 @@ impl PacingScheduler {
             last_move_at: None,
             buttons: ButtonMask::NONE,
             last_abs: None,
+            relative_mode: false,
             held_keys: Vec::new(),
             modifiers: Modifiers::NONE,
         }
@@ -114,10 +119,12 @@ impl PacingScheduler {
     pub fn submit(&mut self, event: InputEvent) {
         match event {
             InputEvent::MouseMoveAbsolute { pos } => {
+                self.relative_mode = false;
                 self.last_abs = Some(pos);
                 self.pending_move = Some(PendingMove::Absolute(pos));
             }
             InputEvent::MouseMoveRelative { dx, dy } => {
+                self.relative_mode = true;
                 let acc = match self.pending_move {
                     Some(PendingMove::Relative { dx: ax, dy: ay }) => PendingMove::Relative {
                         dx: ax + i32::from(dx),
@@ -205,8 +212,11 @@ impl PacingScheduler {
     }
 
     fn mouse_button_command(&self) -> Vec<u8> {
-        // Re-assert the current button mask at the last known position. If no
-        // absolute position is known yet, use a zero-delta relative frame.
+        // Follow the active motion mode so we never re-assert a stale absolute
+        // coordinate after switching to relative motion.
+        if self.relative_mode {
+            return ch9329::mouse_relative(0, 0, self.buttons, 0);
+        }
         match self.last_abs {
             Some(pos) => ch9329::mouse_absolute(pos, self.buttons, 0),
             None => ch9329::mouse_relative(0, 0, self.buttons, 0),
@@ -416,6 +426,29 @@ mod tests {
         assert_eq!(cmd[3], ch9329::cmd::MOUSE_REL);
         assert_eq!(cmd[7] as i8, 127); // dx clamped
         assert_eq!(cmd[8] as i8, -127); // dy clamped
+    }
+
+    #[test]
+    fn button_uses_relative_frame_after_relative_motion() {
+        let mut s = sched();
+        let t0 = Instant::now();
+        // Establish an absolute position first...
+        s.submit(InputEvent::MouseMoveAbsolute {
+            pos: AbsPosition { x: 500, y: 600 },
+        });
+        let _ = s.poll(t0);
+        // ...then switch to relative motion.
+        s.submit(InputEvent::MouseMoveRelative { dx: 3, dy: 3 });
+        let _ = s.poll(t0 + Duration::from_millis(33));
+        // A button now must be a RELATIVE frame, not an absolute one at the
+        // stale (500,600) coordinate.
+        s.submit(InputEvent::MouseButton {
+            button: MouseButton::Left,
+            pressed: true,
+        });
+        let cmd = s.poll(t0 + Duration::from_millis(33)).unwrap();
+        assert_eq!(cmd[3], ch9329::cmd::MOUSE_REL);
+        assert_eq!(cmd[6], ButtonMask::LEFT.0);
     }
 
     #[test]
