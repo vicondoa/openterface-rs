@@ -17,8 +17,8 @@
    `cargo clippy --all-targets -- -D warnings`, `cargo test` (and `nextest`
    once wired).
 
-**Current status:** `W0 — Foundation` **complete** (panel 5/5, repo created +
-protected, CI green). Next: `W1 — Spikes + behavioral spec`.
+**Current status:** `W1 — Spikes + behavioral spec` **complete** (panel 6/6).
+Next: `W2 — Core fan-out` (protocol, HID, decode, serial, video, discovery).
 
 ---
 
@@ -90,14 +90,16 @@ CI, license/docs stubs, and the public repo created + protected.*
 
 ## W1 — Spikes + behavioral spec (fan-out ×5)
 
-- [ ] `W1.1` Wayland-input go/no-go on **niri** (winit vs smithay-clienttk vs libei;
-      pointer-constraints/relative; libdecor CSD; host-key leakage; Esc escape).
-- [ ] `W1.2` V4L2 capability spike + capture fixtures (uvcvideo+MJPG; MJPG/YUYV negotiate).
-- [ ] `W1.3` wgpu/CI headless-render spike (software adapter + feature-gated test + skip).
-- [ ] `W1.4` clap skeleton + `--help`/`--version`/exit-code snapshots.
-- [ ] `W1.5` behavioral-compat spec from the C++ CLI (exit codes, discovery order,
-      auto-select, lifecycle, format fallback, `--debug` semantics, pacing details).
-- [ ] **W1 panel gate** (rust, input, video, product, test, parity).
+- [x] `W1.1` Wayland-input go/no-go on **niri** — **GO with winit** (niri advertises
+      relative-pointer + pointer-constraints; winit smoke test: window + Locked/Confined
+      grab OK; CSD via winit). `docs/explanation/wayland-input-spike.md`.
+- [x] `W1.2` V4L2 capability spike — approach fixed (`v4l` crate, uvcvideo+MJPG select,
+      synthetic fixtures; real-device fixtures deferred to work-ssd W6). `docs/explanation/v4l2-spike.md`.
+- [x] `W1.3` wgpu/CI headless-render spike — feature-gated software-adapter test that
+      skips when no adapter; render design fixed. `docs/explanation/wgpu-spike.md`.
+- [x] `W1.4` clap skeleton + `--help`/`--version`/exit-code snapshots (`docs/reference/cli-help.txt`, 7 tests).
+- [x] `W1.5` behavioral-compat spec from the C++ CLI — `docs/reference/cpp-cli-behavior.md` (422 lines, file:line cited).
+- [x] **W1 panel gate** (rust, input, video, product, test, parity) — unanimous 6/6 (W1fu1).
 
 ## W2 — Core fan-out (fan-out ×6)
 
@@ -149,3 +151,9 @@ _Append a one-line entry when a wave closes (date, wave, panel result, notes)._
   `W0fu1` fixed CI toolchain pin + PLAN sync + rustdoc link, re-confirmed on GPT-5.5.
   Public repo created, main protected (PR + CI, 0 approvals, no direct push), CI green.
   12 hardware-free tests. Commits `07290a0`, `089cbe0`.
+- **2026-06-07 — W1 Spikes + behavioral spec — CLOSED.** Panel 6/6 (rust, input ✓ round 1;
+  parity, video, test, product ✓ after `W1fu1`), reviewers on GPT-5.5. W1.1 **GO with winit**
+  (niri advertises relative-pointer + pointer-constraints; winit smoke test passed live).
+  W1.4 clap surface at C++ parity (now 10 tests). W1.5 behavioral spec (`cpp-cli-behavior.md`).
+  W1.2/W1.3 capture+render designs fixed; Frame gained stride/colorimetry. Commits `a3451f8`,
+  `a73ff99`, `1084931`.

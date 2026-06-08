@@ -1,0 +1,67 @@
+# openterface-rs CLI — help snapshots (W1.4 contract)
+#
+# Generated from `openterface-rs <cmd> --help`. This is the parity contract
+# with the C++ Openterface CLI; regenerate if the surface changes.
+
+$ openterface-rs --help
+Openterface USB KVM CLI — control a target's keyboard, video, and mouse over USB.
+
+Usage: openterface-rs [OPTIONS] <COMMAND>
+
+Commands:
+  connect  Connect to KVM device (auto-discovers devices if none specified)
+  scan     Scan for Openterface devices
+  status   Show device status
+  reset    Perform factory reset of CH9329 chip
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+      --version  Print version
+  -v, --verbose  Enable verbose output
+  -h, --help     Print help
+
+$ openterface-rs --version
+openterface-rs 0.0.0
+
+$ openterface-rs connect --help
+Connect to KVM device (auto-discovers devices if none specified)
+
+Usage: openterface-rs connect [OPTIONS]
+
+Options:
+      --video <PATH>   Video device path (optional - auto-detected if omitted)
+      --serial <PATH>  Serial device path (optional - auto-detected if omitted)
+  -v, --verbose        Enable verbose output
+      --no-video       Disable video capture (even if device detected)
+      --no-serial      Disable input forwarding (even if device detected)
+      --dummy          Run in dummy mode (no device connection, GUI only)
+      --debug          Enable debug output for input events (mouse/keyboard)
+  -h, --help           Print help
+
+$ openterface-rs scan --help
+Scan for Openterface devices
+
+Usage: openterface-rs scan [OPTIONS]
+
+Options:
+  -v, --verbose  Enable verbose output
+  -h, --help     Print help
+
+$ openterface-rs status --help
+Show device status
+
+Usage: openterface-rs status [OPTIONS]
+
+Options:
+  -v, --verbose  Enable verbose output
+  -h, --help     Print help
+
+$ openterface-rs reset --help
+Perform factory reset of CH9329 chip
+
+Usage: openterface-rs reset [OPTIONS]
+
+Options:
+      --serial <PATH>  Serial device path (required for reset)
+  -v, --verbose        Enable verbose output
+  -h, --help           Print help

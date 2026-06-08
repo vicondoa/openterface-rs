@@ -10,7 +10,9 @@ use std::time::Duration;
 
 use openterface_core::discovery::{DeviceInfo, DeviceScanner};
 use openterface_core::serial::{SerialTransport, BAUD_PRIMARY};
-use openterface_core::video::{CaptureConfig, FormatDesc, Frame, PixelFormat, VideoSource};
+use openterface_core::video::{
+    CaptureConfig, ColorRange, ColorSpace, FormatDesc, Frame, PixelFormat, VideoSource,
+};
 use openterface_core::{Error, Result};
 
 /// In-memory serial transport: records everything written, replays scripted
@@ -109,10 +111,21 @@ impl SimulatedVideoSource {
             PixelFormat::Mjpeg => vec![0xFF, 0xD8, 0xFF, 0xD9], // empty JPEG SOI/EOI
             PixelFormat::Yuyv => vec![0x00, 0x80, 0x00, 0x80],
         };
+        let bytes_per_line = match self.config.format {
+            PixelFormat::Mjpeg => 0,
+            PixelFormat::Yuyv => self.config.width * 2,
+        };
         Frame {
             format: self.config.format,
             width: self.config.width,
             height: self.config.height,
+            bytes_per_line,
+            color_range: ColorRange::Limited,
+            color_space: if self.config.height >= 720 {
+                ColorSpace::Bt709
+            } else {
+                ColorSpace::Bt601
+            },
             timestamp: Duration::from_millis(self.frames * 33),
             data,
         }
