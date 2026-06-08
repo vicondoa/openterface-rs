@@ -91,7 +91,9 @@ jobs:
         run: |
           test -f packaging/udev/60-openterface.rules
           grep -q 'uaccess' packaging/udev/60-openterface.rules
-          ! grep -q '0666' packaging/udev/60-openterface.rules
+          # No ACTIVE rule line may use world-writable MODE 0666 (comments may
+          # mention it to explain why it is avoided).
+          ! grep -Eq '^[^#]*MODE="0666"' packaging/udev/60-openterface.rules
 
       - name: crates.io metadata (package dry-run)
         run: |
