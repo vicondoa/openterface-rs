@@ -81,7 +81,9 @@ jobs:
       - name: shellcheck + syntax
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
-          shellcheck packaging/install.sh tools/kvm-debug.sh
+          # --severity=warning: info/style notes are advisory and vary by
+          # shellcheck version across runners; warning+ still catches real bugs.
+          shellcheck --severity=warning packaging/install.sh tools/kvm-debug.sh
           sh -n packaging/install.sh
           bash -n tools/kvm-debug.sh
 

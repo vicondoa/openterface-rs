@@ -14,14 +14,17 @@ These constants live in `openterface_core::device`.
 ## Video node selection
 
 A single physical capture can expose **several** `/dev/video*` nodes, and a VM
-adds more. openterface-rs (and the closed-loop harness) pick the node that is:
+adds more. The application's `SysfsScanner` selects the node whose **card name
+contains `Openterface`** or whose USB **VID/PID** matches the MS2109
+(`345F:2109` / `534D:2109`). This already **skips the virtio-media `/dev/video0`
+decoder adapter** (different card name and modalias) and the secondary/metadata
+nodes.
 
-1. backed by the **`uvcvideo`** driver, **and**
-2. advertises the **`MJPG`** pixel format.
-
-This deliberately **skips the virtio-media `/dev/video0` decoder adapter** that
-appears in a VM and the metadata/secondary nodes, which would otherwise be
-selected by naive "first `/dev/video0`" logic.
+The [closed-loop harness](../how-to/closed-loop-harness.md) uses a stricter
+heuristic — it additionally requires the **`uvcvideo`** driver **and** an
+advertised **`MJPG`** format — which is the most robust selection when the card
+name is ambiguous. (Bringing that exact `uvcvideo` + `MJPG` check into the
+application scanner is tracked for the parity gate.)
 
 ## Serial node selection
 

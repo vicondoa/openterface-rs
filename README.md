@@ -23,7 +23,10 @@ hardware (MS2109 HDMI capture + CH9329 USB-serial HID bridge).
 
 ## Install
 
-Prebuilt binaries for **x86_64** and **aarch64** (64-bit Pi):
+Prebuilt binaries for **x86_64** and **aarch64** (64-bit Pi) are published on
+the [Releases page](https://github.com/vicondoa/openterface-rs/releases) once a
+version is tagged (the first tag is cut after real-hardware validation — until
+then, build from source or use Nix):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/vicondoa/openterface-rs/main/packaging/install.sh -o install.sh

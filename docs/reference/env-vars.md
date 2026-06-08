@@ -11,12 +11,12 @@ abort startup), except where a range is enforced as noted.
 | Variable | Default | Range / values | Effect |
 |----------|--------:|----------------|--------|
 | `RUST_LOG` | _(unset)_ | `error`/`warn`/`info`/`debug`/`trace`, or per-module | Log filter (via `tracing-subscriber`). |
-| `OPENTERFACE_MOUSE_INTERVAL_MS` | `33` | `5`–`1000` (clamped) | Minimum interval between forwarded mouse-move commands. ~30 Hz. **Load-bearing:** see below. |
+| `OPENTERFACE_MOUSE_INTERVAL_MS` | `33` | accepted `5`–`1000` | Minimum interval between forwarded mouse-move commands (~30 Hz). A value outside the range (or unparseable) is ignored and the `33` default is used. **Load-bearing:** see below. |
 | `OPENTERFACE_THROTTLE` | `1` | `0` disables | Idle MJPEG-decode throttling on/off. |
 | `OPENTERFACE_IDLE_DECODE_MS` | `100` | ms | Minimum decode interval for a non-deterministic static stream. |
 | `OPENTERFACE_INPUT_WAKE_MS` | `250` | ms | After input, decode at full rate for this long. |
 | `OPENTERFACE_IDLE_WATCHDOG_MS` | `1000` | ms | Force a refresh at least this often (anti-freeze). |
-| `OPENTERFACE_FULLSCREEN` | `0` | `0`/`1` | Start the window fullscreen. |
+| `OPENTERFACE_FULLSCREEN` | `0` | `0`/`1` (also `false`/`no`/`off` = off) | Start the window fullscreen. `0`/empty/`false` stay windowed. |
 | `OPENTERFACE_REQUIRE_GPU` | _(unset)_ | set = require | Fail (not skip) if no wgpu adapter — used by the headless render test. |
 
 > **`OPENTERFACE_MOUSE_INTERVAL_MS` is not an optimization.** Over USB/IP the

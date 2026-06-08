@@ -61,8 +61,10 @@ These are not optimizations — the device misbehaves without them:
   wake and an anti-freeze watchdog (`OPENTERFACE_THROTTLE`,
   `OPENTERFACE_IDLE_DECODE_MS`, `OPENTERFACE_INPUT_WAKE_MS`,
   `OPENTERFACE_IDLE_WATCHDOG_MS`).
-- **Discovery selects the uvcvideo + MJPG node**, skipping the virtio-media
-  decoder adapter that also appears as `/dev/video*` in a VM.
+- **Discovery selects the Openterface capture by card name + USB identity**
+  (card name containing `Openterface`, or the MS2109 VID/PID), which skips the
+  virtio-media decoder adapter that also appears as `/dev/video*` in a VM. The
+  closed-loop harness additionally checks for `uvcvideo` + `MJPG`.
 
 ## Concurrency model
 

@@ -78,16 +78,17 @@ CH9329 factory reset.
 openterface-rs reset --serial PATH
 ```
 
-`--serial` is required; if omitted, the command prints usage and exits `2`.
-Requires the `hardware` feature.
+`--serial` is required; if omitted, the command prints usage and exits **`1`**
+(it is validated in the handler, not by the parser). Requires the `hardware`
+feature.
 
 ## Exit codes
 
 | Code | Meaning |
 |-----:|---------|
 | `0` | Success (including `--help`/`--version`). |
-| `1` | Runtime failure (no device, connection/reset failed). |
-| `2` | Usage error (bad flags, missing required subcommand/option). |
+| `1` | Runtime failure (no device, connection/reset failed, `reset` missing `--serial`). |
+| `2` | Parser usage error (unknown/invalid flags, missing required subcommand). |
 
 The canonical `--help` text is captured in
 [`cli-help.txt`](cli-help.txt); regenerate it with

@@ -114,7 +114,9 @@ jobs:
           cp artifacts/*.tar.gz release/
           cp packaging/install.sh release/
           cp packaging/udev/60-openterface.rules release/
-          ( cd release && sha256sum ./*.tar.gz > SHA256SUMS )
+          # No "./" prefix: install.sh matches " <tarball>$" in SHA256SUMS.
+          ( cd release && sha256sum -- *.tar.gz install.sh 60-openterface.rules > SHA256SUMS )
+          cat release/SHA256SUMS
           ls -l release
 
       - name: Create / update the GitHub Release

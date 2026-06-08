@@ -38,15 +38,36 @@ die()  { printf '%s\n' "openterface-rs: error: $*" >&2; exit 1; }
 
 # --- privilege helper: only used for the actual install/remove steps ---------
 SUDO=""
+
+# Is the nearest existing ancestor of $1 writable by the current user?
+dir_writable() {
+  d=$1
+  while [ -n "$d" ] && [ "$d" != "/" ] && [ ! -e "$d" ]; do
+    d=$(dirname "$d")
+  done
+  [ -w "$d" ]
+}
+
 need_root() {
   # When staging into DESTDIR we never touch real system paths, so no sudo.
-  [ -n "$DESTDIR" ] && return 0
+  [ -n "$DESTDIR" ] && { SUDO=""; return 0; }
+  # Only escalate if a destination is not already writable (e.g. a user prefix
+  # like ~/.local needs no sudo; /usr/local and /etc/udev do).
+  need=0
+  dir_writable "$(dirname "$BIN_DEST")" || need=1
+  if [ "$DO_UDEV" -eq 1 ]; then
+    dir_writable "$(dirname "$RULE_DEST")" || need=1
+  fi
+  if [ "$need" -eq 0 ]; then
+    SUDO=""
+    return 0
+  fi
   if [ "$(id -u)" -eq 0 ]; then
     SUDO=""
   elif command -v sudo >/dev/null 2>&1; then
     SUDO="sudo"
   else
-    die "need root (or sudo) to install to $PREFIX and $UDEV_RULES_DIR; re-run as root or use --prefix to a writable dir"
+    die "need root (or sudo) to install to $PREFIX and $UDEV_RULES_DIR; re-run as root, use --prefix to a writable dir, or pass --no-udev"
   fi
 }
 
@@ -73,7 +94,7 @@ if [ "$UNINSTALL" -eq 1 ]; then
     log "removing $RULE_DEST"
     $SUDO rm -f "$RULE_DEST"
     if [ -z "$DESTDIR" ] && command -v udevadm >/dev/null 2>&1; then
-      $SUDO udevadm control --reload && $SUDO udevadm trigger || true
+      { $SUDO udevadm control --reload && $SUDO udevadm trigger; } || true
     fi
   fi
   log "uninstalled."
@@ -140,12 +161,11 @@ log "installing binary -> $BIN_DEST"
 $SUDO install -D -m 0755 "$SRC_BIN" "$BIN_DEST"
 
 if [ "$DO_UDEV" -eq 1 ]; then
-  # Ship the rules file from the archive if present, else download it.
+  # Only install the rules file that came from the checksum-verified tarball.
+  # We deliberately do NOT fall back to downloading the rules separately: the
+  # release publishes SHA256SUMS for the tarball only, so a standalone download
+  # would be installed into /etc/udev/rules.d unverified.
   RULE_SRC="$(find "$tmp" -type f -name "$UDEV_RULE_NAME" | head -1 || true)"
-  if [ -z "$RULE_SRC" ]; then
-    curl -fsSL "${base}/${UDEV_RULE_NAME}" -o "$tmp/$UDEV_RULE_NAME" 2>/dev/null \
-      && RULE_SRC="$tmp/$UDEV_RULE_NAME" || true
-  fi
   if [ -n "$RULE_SRC" ]; then
     log "installing udev rules -> $RULE_DEST"
     # The fallback group must exist before the rule references it.
@@ -155,11 +175,11 @@ if [ "$DO_UDEV" -eq 1 ]; then
     $SUDO install -D -m 0644 "$RULE_SRC" "$RULE_DEST"
     if [ -z "$DESTDIR" ] && command -v udevadm >/dev/null 2>&1; then
       log "reloading udev ..."
-      $SUDO udevadm control --reload && $SUDO udevadm trigger || true
+      { $SUDO udevadm control --reload && $SUDO udevadm trigger; } || true
     fi
     log "note: for headless/SSH use, add yourself to the group: sudo usermod -aG openterface \"\$USER\" (then re-login)"
   else
-    warn "udev rules not found in the archive or release; skipping (use --no-udev to silence)"
+    warn "udev rules not found in the verified archive; skipping (use --no-udev to silence)"
   fi
 fi
 

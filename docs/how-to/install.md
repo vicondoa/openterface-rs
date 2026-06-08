@@ -4,6 +4,11 @@ openterface-rs is **Linux-only** and runs natively on **Wayland** (no
 XWayland, no Qt). Prebuilt binaries are provided for **x86_64** and **aarch64**
 (e.g. Raspberry Pi running a 64-bit OS).
 
+> **Note:** prebuilt release artifacts appear on the
+> [Releases page](https://github.com/vicondoa/openterface-rs/releases) once a
+> version is **tagged**. The first tag (`v1.0.0`) is cut after the real-hardware
+> validation gate; until then, build [from source](build.md) or via Nix.
+
 ## Quickstart
 
 ```bash
