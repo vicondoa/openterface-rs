@@ -146,15 +146,7 @@ impl VideoSource for V4l2Source {
     }
 
     fn start(&mut self) -> Result<()> {
-        let stream = Stream::with_buffers(&self.device, Type::VideoCapture, 4)
-            .map_err(|e| Error::Video(format!("start stream: {e}")))?;
-        // SAFETY: the stream borrows `*self.device`. The device is heap-boxed,
-        // so its address is stable across moves of `V4l2Source`, and `stream`
-        // is declared before `device`, so it is dropped (ending the borrow)
-        // before the device. Extending the borrow to 'static is therefore
-        // sound for the lifetime of this value.
-        let stream: Stream<'static> = unsafe { std::mem::transmute(stream) };
-        self.stream = Some(stream);
+        self.stream = Some(self.make_stream()?);
         Ok(())
     }
 
@@ -170,40 +162,80 @@ impl VideoSource for V4l2Source {
         let config = self
             .active
             .ok_or_else(|| Error::Video("no active config".to_string()))?;
-        let stream = self
-            .stream
-            .as_mut()
-            .ok_or_else(|| Error::Video("capture not started".to_string()))?;
-        // Honor the contract: block at most `timeout` for the next frame.
-        stream.set_timeout(timeout);
-        let (buf, meta) = match stream.next() {
-            Ok(pair) => pair,
-            Err(e)
-                if matches!(
-                    e.kind(),
-                    std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
-                ) =>
-            {
-                return Err(Error::Timeout)
+        // `v4l`'s set_timeout does `as_millis().try_into::<i32>().unwrap()`, so
+        // clamp to i32::MAX ms to avoid a panic on an absurdly large timeout.
+        let timeout = timeout.min(Duration::from_millis(i32::MAX as u64));
+
+        // Distinguish a (recoverable) timeout from a hard error so we can react
+        // after releasing the mutable borrow of `self.stream`.
+        enum Outcome {
+            Frame(Box<Frame>),
+            Timeout,
+        }
+
+        let outcome = {
+            let stream = self
+                .stream
+                .as_mut()
+                .ok_or_else(|| Error::Video("capture not started".to_string()))?;
+            stream.set_timeout(timeout);
+            match stream.next() {
+                Ok((buf, meta)) => {
+                    // Only the captured bytes are valid; the buffer may be larger.
+                    let used = (meta.bytesused as usize).min(buf.len());
+                    let data = buf[..used].to_vec();
+                    let bytes_per_line = match config.format {
+                        PixelFormat::Yuyv => applied.stride,
+                        PixelFormat::Mjpeg => 0,
+                    };
+                    Outcome::Frame(Box::new(Frame {
+                        format: config.format,
+                        width: config.width,
+                        height: config.height,
+                        bytes_per_line,
+                        color_range: map_range(applied.quantization, config.format),
+                        color_space: map_colorspace(applied.colorspace),
+                        timestamp: Duration::ZERO,
+                        data,
+                    }))
+                }
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                    ) =>
+                {
+                    Outcome::Timeout
+                }
+                Err(e) => return Err(Error::Video(format!("dequeue: {e}"))),
             }
-            Err(e) => return Err(Error::Video(format!("dequeue: {e}"))),
         };
-        // Only the captured bytes are valid; the mmap buffer may be larger.
-        let used = (meta.bytesused as usize).min(buf.len());
-        let data = buf[..used].to_vec();
-        let bytes_per_line = match config.format {
-            PixelFormat::Yuyv => applied.stride,
-            PixelFormat::Mjpeg => 0,
-        };
-        Ok(Frame {
-            format: config.format,
-            width: config.width,
-            height: config.height,
-            bytes_per_line,
-            color_range: map_range(applied.quantization, config.format),
-            color_space: map_colorspace(applied.colorspace),
-            timestamp: Duration::ZERO,
-            data,
-        })
+
+        match outcome {
+            Outcome::Frame(frame) => Ok(*frame),
+            Outcome::Timeout => {
+                // A timed-out dequeue leaves the v4l Stream's buffer bookkeeping
+                // wedged (the next `next()` would re-queue an already-queued
+                // buffer and fail persistently). Rebuild the stream so a later
+                // call can recover cleanly.
+                self.stream = None;
+                self.stream = Some(self.make_stream()?);
+                Err(Error::Timeout)
+            }
+        }
+    }
+}
+
+impl V4l2Source {
+    /// Creates an mmap capture stream borrowing the boxed device.
+    fn make_stream(&self) -> Result<Stream<'static>> {
+        let stream = Stream::with_buffers(&self.device, Type::VideoCapture, 4)
+            .map_err(|e| Error::Video(format!("start stream: {e}")))?;
+        // SAFETY: the stream borrows `*self.device`. The device is heap-boxed,
+        // so its address is stable across moves of `V4l2Source`, and `stream`
+        // is declared before `device`, so it is dropped (ending the borrow)
+        // before the device. Extending the borrow to 'static is therefore
+        // sound for the lifetime of this value.
+        Ok(unsafe { std::mem::transmute::<Stream<'_>, Stream<'static>>(stream) })
     }
 }

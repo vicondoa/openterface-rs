@@ -354,6 +354,10 @@ events into those reports, and openterface-rs must reproduce this translation:
 - **Backslash (KEY_BACKSLASH, evdev 43)** maps to HID `0x32` (Non-US #/~), not
   the "standard" `0x31`, because the C++ table does so (`src/gui_input.cpp:89`).
   openterface-rs matches the C++ table for parity.
+- **Intentional additive divergence:** openterface-rs also maps **KEY_102ND
+  (evdev 86) → HID `0x64`** (the ISO 102nd key), which the C++ table omits. This
+  is a strict superset — it forwards a physical key the C++ drops on ISO
+  keyboards — and affects no key the C++ already handles.
 
 ### Absolute mouse report
 
