@@ -138,8 +138,11 @@ impl PacingScheduler {
                 self.pending_move = Some(acc);
             }
             InputEvent::MouseButton { button, pressed } => {
-                self.buttons = self.buttons.with(button, pressed);
+                // Flush any pending relative move with the *current* (pre-button)
+                // mask first, so the movement frame carries the old button state,
+                // then apply the button change and enqueue the button command.
                 self.flush_pending_relative_move();
+                self.buttons = self.buttons.with(button, pressed);
                 self.priority.push_back(self.mouse_button_command());
             }
             InputEvent::Key {
@@ -477,9 +480,11 @@ mod tests {
             button: MouseButton::Left,
             pressed: true,
         });
-        // The move must come out FIRST (with its delta), then the click.
+        // The move must come out FIRST (with its delta and the pre-click button
+        // state), then the click.
         let first = s.poll(t0).unwrap();
         assert_eq!(first[3], ch9329::cmd::MOUSE_REL);
+        assert_eq!(first[6], ButtonMask::NONE.0); // move carries no button yet
         assert_eq!(first[7] as i8, 7); // dx
         assert_eq!(first[8] as i8, -4); // dy
         let second = s.poll(t0).unwrap();
@@ -487,6 +492,36 @@ mod tests {
         assert_eq!(second[6], ButtonMask::LEFT.0); // the click
                                                    // No leftover pending move.
         assert!(s.poll(t0 + Duration::from_millis(100)).is_none());
+    }
+
+    #[test]
+    fn drag_release_keeps_button_until_after_final_move() {
+        let mut s = sched();
+        let t0 = Instant::now();
+        // Press (button down) in relative mode, then a drag move, then release.
+        s.submit(InputEvent::MouseMoveRelative { dx: 0, dy: 0 });
+        let _ = s.poll(t0); // emit the priming move
+        s.submit(InputEvent::MouseButton {
+            button: MouseButton::Left,
+            pressed: true,
+        });
+        let _ = s.poll(t0); // emit the button-down
+        s.submit(InputEvent::MouseMoveRelative { dx: 5, dy: 5 }); // drag
+        s.submit(InputEvent::MouseButton {
+            button: MouseButton::Left,
+            pressed: false,
+        });
+        // The drag move must be flushed with LEFT still held, before the release.
+        let drag = s.poll(t0).unwrap();
+        assert_eq!(drag[3], ch9329::cmd::MOUSE_REL);
+        assert_eq!(
+            drag[6],
+            ButtonMask::LEFT.0,
+            "drag segment keeps button held"
+        );
+        assert_eq!(drag[7] as i8, 5);
+        let release = s.poll(t0).unwrap();
+        assert_eq!(release[6], ButtonMask::NONE.0, "release clears the button");
     }
 
     #[test]
