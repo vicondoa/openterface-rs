@@ -13,9 +13,23 @@ authors.workspace = true
 name = "openterface-rs"
 path = "src/main.rs"
 
+[features]
+# Real device support: pulls the OS-backed serial + V4L2 backends. Off by
+# default so the binary (and `cargo test`) build with no system libraries; the
+# release/Nix build (and CI typecheck) enable it. `scan`/`status` work without
+# it (pure sysfs); `reset`/`connect` require it.
+hardware = ["openterface-core/serial-backend", "openterface-core/video-backend"]
+
 [dependencies]
 openterface-core.workspace = true
 clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
 
 [lints]
 workspace = true

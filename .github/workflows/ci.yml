@@ -35,7 +35,9 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Clippy (hardware backends)
-        run: cargo clippy -p openterface-core --features serial-backend,video-backend --lib -- -D warnings
+        run: |
+          cargo clippy -p openterface-core --features serial-backend,video-backend --lib -- -D warnings
+          cargo clippy -p openterface-cli --features hardware --all-targets -- -D warnings
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
