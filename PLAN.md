@@ -17,7 +17,8 @@
    `cargo clippy --all-targets -- -D warnings`, `cargo test` (and `nextest`
    once wired).
 
-**Current status:** `W2 — Core fan-out` — all six modules implemented (protocol,
+**Current status:** `W2 — Core fan-out` **complete** (panel 6/6). Next: `W3 —
+Integration` (pacing scheduler, session orchestration, vertical slice).
 HID, decode, serial, video, discovery); 56 hardware-free tests + PTY test. W2
 work-review panel gate in progress.
 Next: `W2 — Core fan-out` (protocol, HID, decode, serial, video, discovery).
@@ -111,7 +112,7 @@ CI, license/docs stubs, and the public repo created + protected.*
 - [x] `W2.4` serial baud-fallback + CH9329 response parse + serialport backend + PTY test.
 - [x] `W2.5` fault-injecting video simulator + feature-gated v4l backend.
 - [x] `W2.6` pure-sysfs discovery (skips virtio node).
-- [ ] **W2 panel gate** (rust, protocol, video, input, test, security).
+- [x] **W2 panel gate** (rust, protocol, video, input, test, security) — unanimous 6/6 (W2fu2).
 
 ## W3 — Integration (×~2)
 
@@ -158,4 +159,11 @@ _Append a one-line entry when a wave closes (date, wave, panel result, notes)._
   (niri advertises relative-pointer + pointer-constraints; winit smoke test passed live).
   W1.4 clap surface at C++ parity (now 10 tests). W1.5 behavioral spec (`cpp-cli-behavior.md`).
   W1.2/W1.3 capture+render designs fixed; Frame gained stride/colorimetry. Commits `a3451f8`,
-  `a73ff99`, `1084931`.
+  `a73ff99`, `1084931`. PR #2.
+- **2026-06-07 — W2 Core fan-out — CLOSED.** Panel 6/6 (input, test, security ✓ after `W2fu1`;
+  protocol, video, rust ✓ after `W2fu2`), reviewers on GPT-5.5. Six modules: CH9329 builders +
+  golden/property tests, HID tables (evdev→HID, sendText), MJPEG+YUYV decode (real fixture,
+  range-correct colorimetry), serial baud-fallback + serialport backend + PTY test, fault-injecting
+  video sim + v4l backend (timeout recovery), pure-sysfs discovery. 59 hardware-free tests. Panel
+  caught: YUYV decode panics, wrong limited-range coefficients, v4l timeout wedge + panic, HID
+  parity (evdev 43→0x32, +KEY_102ND).
