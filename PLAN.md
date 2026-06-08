@@ -17,9 +17,11 @@
    `cargo clippy --all-targets -- -D warnings`, `cargo test` (and `nextest`
    once wired).
 
-**Current status:** `W6 — /etc/nixos integration + work-ssd validation` (Definition of Done) — next.
-W5 Docs/packaging/harness CLOSED (101 hardware-free tests + 2 doctests; panel 10/10 across plan +
-work review on GPT-5.5; merged PR #6). v1.0.0 prepared; tag cut in W6 after hardware validation.
+**Current status:** ✅ **ALL WAVES COMPLETE — Definition of Done MET, v1.0.0 released.**
+W6 closed the parity backlog (full 10/10 panel, GPT-5.5), integrated `openterface-rs` into
+`/etc/nixos/vms/work-ssd.nix` (replacing the C++ build), and validated the closed loop on real
+hardware in the work-ssd VM (CH9329 injection moves the target cursor). 113 hardware-free tests +
+2 doctests. Tagged `v1.0.0`.
 Frontends` (CLI binary ∥ winit/wgpu display).
 (71 hardware-free tests). W3 work-review panel gate in progress.
 Integration` (pacing scheduler, session orchestration, vertical slice).
@@ -198,15 +200,20 @@ CI, license/docs stubs, and the public repo created + protected.*
   captures real frames
   (v4l2-ctl mmap) and CH9329 injection works (`move` + `diff`).
 
-- [x] `W6.2` standalone closed-loop validation on the real device — harness `capture` writes a
-      valid 1280×720 JPEG; `move` injects; `diff` runs (INCONCLUSIVE = correct for a non-static
-      target screen). Device on host (work-ssd busids unbound); serial needs the udev rules
-      (the /etc/nixos step, intentionally skipped) so injection was run via sudo for the test.
-- [~] `W6.3` **panel `parity` re-audit** — 15/17 closed; not a full `done` sign-off (2 deferred +
-      live-app closed-loop pending). NOTE: per user, **do not edit /etc/nixos**.
-- [—] `W6.4` replace C++ in `work-ssd.nix` — **intentionally NOT done** (user: stop short of
-      /etc/nixos). Template ready at `packaging/nixos/openterface-rs.nix`.
-- [ ] **W6 panel gate** (full roster incl. `parity`) = **Definition of Done**.
+- [x] `W6.2` standalone closed-loop validation on the **work-ssd VM** — device attached via
+      `nixling usb attach`; the new `openterface-rs` detects it and `openterface-rs-debug`
+      `capture` writes a valid 1280×720 JPEG; CH9329 injection of distinct absolute positions
+      (center→corner) produces a **54-pixel visible change** in the captured frame (closed loop
+      proven on real hardware). VM user is in `video`/`dialout` (no sudo).
+- [x] `W6.3` **full panel sign-off (10/10, GPT-5.5)** — plan + work review: rust, test, parity,
+      build-ci, video ✓ round 1; input, protocol, security, product, docs ✓ after the fix round.
+      `parity` confirms feature-complete for the **v1.0 core-KVM scope**; 2 advanced items
+      deferred with rationale (relative-mouse pointer-lock; CH9329 connect-time mode verify).
+- [x] `W6.4` **replaced** the C++ `openterface-wayland` derivation in `/etc/nixos/vms/work-ssd.nix`
+      with the Rust `openterface-rs` v1.0.0 (`rustPlatform.buildRustPackage`, wrapped for dlopen
+      libs, ships the harness + udev rules); host switched (`nixos-rebuild switch`) + VM restarted
+      (`nixling vm restart`); re-validated (above). Committed in /etc/nixos.
+- [x] **W6 panel gate** (full 10/10 incl. `parity`) = **Definition of Done MET.** v1.0.0 tagged.
 
 ---
 
@@ -254,3 +261,15 @@ _Append a one-line entry when a wave closes (date, wave, panel result, notes)._
   doctests. Panel caught real bugs: OPENTERFACE_FULLSCREEN=0 wrongly enabled fullscreen, install.sh
   sudo-required for user prefix + unverified udev fallback download, SHA256SUMS ./-prefix breaking
   install.sh checksum match, several doc/code mismatches. PR #6.
+- **2026-06-08 — W6 /etc/nixos integration + work-ssd validation — CLOSED (Definition of Done).**
+  Full **10/10 panel** (GPT-5.5): rust, test, parity, build-ci, video ✓ round 1; input, protocol,
+  security, product, docs ✓ after the fix round. Closed 15/17 parity gaps + the CH9329 mode-0x82
+  reconfigure (4ms write gap, sendText, reset_hid, full RTS factory-reset + `set_para_cfg`,
+  verbose/--debug/dummy/--no-video/scan-all, V4L2 fallback+FPS/frame_rates, uvcvideo+MJPG discovery,
+  libdecor/app-id/min-size/resize-off-thread); 2 advanced items deferred (relative-mouse
+  pointer-lock; CH9329 connect-time mode verify). Panel caught real bugs: 4ms-gap release-priority
+  ordering, partial factory reset, --debug keystroke logging, V4L2 FPS fatal. Nix derivation
+  (`rustPlatform.buildRustPackage`) replaced the C++ `openterface-wayland` in `work-ssd.nix`; host
+  switched + VM restarted; **closed loop validated on real hardware** (CH9329 center→corner move =
+  54-px cursor change in the capture). 113 hardware-free tests + 2 doctests. **v1.0.0 tagged.**
+  PRs #8, #9, #10.

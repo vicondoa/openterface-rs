@@ -6,11 +6,12 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
-The following is **prepared for the 1.0.0 release** and ships once the version
-is tagged (after the W6 real-hardware validation gate). openterface-rs is a
-native-Linux, Wayland-only, Qt-free Rust reimplementation of the Openterface
-Mini-KVM host CLI, at **core-KVM parity** with the C++ CLI (video +
-keyboard/mouse over one USB cable).
+## [1.0.0] - 2026-06-08
+
+openterface-rs is a native-Linux, Wayland-only, Qt-free Rust reimplementation of
+the Openterface Mini-KVM host CLI, at **core-KVM parity** with the C++ CLI (video
++ keyboard/mouse over one USB cable). Hardware-validated in the work-ssd VM
+(device discovery, live capture, and CH9329 injection moving the target cursor).
 
 ### Added
 - **CLI** (`openterface-rs`): `connect` (with `--video`/`--serial`/`--no-serial`/
@@ -56,4 +57,5 @@ keyboard/mouse over one USB cable).
 - `OPENTERFACE_USE_LIBDECOR=0` falls back to a bare xdg-shell window; full
   CSD/SSD negotiation parity beyond that is best-effort under winit.
 
-[Unreleased]: https://github.com/vicondoa/openterface-rs/compare/main...HEAD
+[Unreleased]: https://github.com/vicondoa/openterface-rs/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/vicondoa/openterface-rs/releases/tag/v1.0.0
