@@ -1,0 +1,167 @@
+//! Real V4L2 capture backend using the `v4l` crate.
+//!
+//! Gated behind the `video-backend` feature so the default (no-hardware) test
+//! build does not pull in `v4l`/`libv4l`. Real-device validation happens on the
+//! work-ssd VM (see `docs/explanation/v4l2-spike.md`); the deterministic
+//! pipeline tests use the `SimulatedVideoSource` in `openterface-test-support`.
+
+use std::time::Duration;
+
+use v4l::buffer::Type;
+use v4l::io::mmap::Stream;
+use v4l::io::traits::CaptureStream;
+use v4l::video::Capture;
+use v4l::{Device, FourCC};
+
+use crate::video::{
+    CaptureConfig, ColorRange, ColorSpace, FormatDesc, Frame, PixelFormat, VideoSource,
+};
+use crate::{Error, Result};
+
+/// FourCC for Motion-JPEG.
+const FOURCC_MJPG: &[u8; 4] = b"MJPG";
+/// FourCC for packed YUYV 4:2:2.
+const FOURCC_YUYV: &[u8; 4] = b"YUYV";
+
+fn fourcc(format: PixelFormat) -> FourCC {
+    match format {
+        PixelFormat::Mjpeg => FourCC::new(FOURCC_MJPG),
+        PixelFormat::Yuyv => FourCC::new(FOURCC_YUYV),
+    }
+}
+
+fn pixel_format(repr: &[u8; 4]) -> Option<PixelFormat> {
+    match repr {
+        b if b == FOURCC_MJPG => Some(PixelFormat::Mjpeg),
+        b if b == FOURCC_YUYV => Some(PixelFormat::Yuyv),
+        _ => None,
+    }
+}
+
+/// A [`VideoSource`] backed by a real V4L2 device (e.g. `/dev/video2`).
+///
+/// Field order matters: `stream` is declared before `device` so it is dropped
+/// first (the stream borrows the device). The device is boxed so its address is
+/// stable even if the `V4l2Source` value is moved, which is what makes the
+/// borrow extension in [`V4l2Source::start`] sound.
+pub struct V4l2Source {
+    stream: Option<Stream<'static>>,
+    device: Box<Device>,
+    active: Option<CaptureConfig>,
+}
+
+impl V4l2Source {
+    /// Opens the V4L2 device at `path`.
+    pub fn open(path: &str) -> Result<Self> {
+        let device =
+            Device::with_path(path).map_err(|e| Error::Video(format!("open {path}: {e}")))?;
+        Ok(Self {
+            stream: None,
+            device: Box::new(device),
+            active: None,
+        })
+    }
+}
+
+impl VideoSource for V4l2Source {
+    fn supported_formats(&self) -> Result<Vec<FormatDesc>> {
+        let mut out = Vec::new();
+        let formats = Capture::enum_formats(&*self.device)
+            .map_err(|e| Error::Video(format!("enum_formats: {e}")))?;
+        for desc in formats {
+            let Some(format) = pixel_format(&desc.fourcc.repr) else {
+                continue;
+            };
+            let sizes = Capture::enum_framesizes(&*self.device, desc.fourcc)
+                .map_err(|e| Error::Video(format!("enum_framesizes: {e}")))?;
+            for size in sizes {
+                for discrete in size.size.to_discrete() {
+                    out.push(FormatDesc {
+                        format,
+                        width: discrete.width,
+                        height: discrete.height,
+                        // Frame-rate enumeration is device-dependent; the
+                        // negotiation only needs resolution+format here.
+                        frame_rates: Vec::new(),
+                    });
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    fn configure(&mut self, config: CaptureConfig) -> Result<()> {
+        let mut fmt =
+            Capture::format(&*self.device).map_err(|e| Error::Video(format!("get format: {e}")))?;
+        fmt.width = config.width;
+        fmt.height = config.height;
+        fmt.fourcc = fourcc(config.format);
+        let applied = Capture::set_format(&*self.device, &fmt)
+            .map_err(|e| Error::Video(format!("set format: {e}")))?;
+        let format = pixel_format(&applied.fourcc.repr).ok_or_else(|| {
+            Error::Video(format!(
+                "device chose unsupported fourcc {:?}",
+                applied.fourcc
+            ))
+        })?;
+        self.active = Some(CaptureConfig {
+            width: applied.width,
+            height: applied.height,
+            fps: config.fps,
+            format,
+        });
+        Ok(())
+    }
+
+    fn active_config(&self) -> Option<CaptureConfig> {
+        self.active
+    }
+
+    fn start(&mut self) -> Result<()> {
+        let stream = Stream::with_buffers(&self.device, Type::VideoCapture, 4)
+            .map_err(|e| Error::Video(format!("start stream: {e}")))?;
+        // SAFETY: the stream borrows `*self.device`. The device is heap-boxed,
+        // so its address is stable across moves of `V4l2Source`, and `stream`
+        // is declared before `device`, so it is dropped (ending the borrow)
+        // before the device. Extending the borrow to 'static is therefore
+        // sound for the lifetime of this value.
+        let stream: Stream<'static> = unsafe { std::mem::transmute(stream) };
+        self.stream = Some(stream);
+        Ok(())
+    }
+
+    fn stop(&mut self) -> Result<()> {
+        self.stream = None;
+        Ok(())
+    }
+
+    fn next_frame(&mut self, _timeout: Duration) -> Result<Frame> {
+        let stream = self
+            .stream
+            .as_mut()
+            .ok_or_else(|| Error::Video("capture not started".to_string()))?;
+        let (buf, _meta) = stream
+            .next()
+            .map_err(|e| Error::Video(format!("dequeue: {e}")))?;
+        let config = self
+            .active
+            .ok_or_else(|| Error::Video("no active config".to_string()))?;
+        Ok(Frame {
+            format: config.format,
+            width: config.width,
+            height: config.height,
+            bytes_per_line: match config.format {
+                PixelFormat::Yuyv => config.width * 2,
+                PixelFormat::Mjpeg => 0,
+            },
+            color_range: ColorRange::Limited,
+            color_space: if config.height >= 720 {
+                ColorSpace::Bt709
+            } else {
+                ColorSpace::Bt601
+            },
+            timestamp: Duration::ZERO,
+            data: buf.to_vec(),
+        })
+    }
+}

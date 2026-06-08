@@ -76,15 +76,33 @@ impl SerialTransport for MockSerial {
     }
 }
 
-/// A video source that emits a fixed synthetic frame on demand.
+/// A scripted fault the [`SimulatedVideoSource`] can inject, to exercise the
+/// failure modes a real capture device exhibits.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum VideoFault {
+    /// The next `next_frame` returns a timeout (no data within the deadline).
+    Timeout,
+    /// The next frame's payload is corrupt (e.g. truncated MJPEG).
+    CorruptFrame,
+    /// The device disappears mid-session: this and all later calls error
+    /// (simulates a USB/IP detach).
+    Disconnect,
+}
+
+/// A video source that emits synthetic frames on demand, with optional scripted
+/// faults.
 ///
 /// The default frame is a tiny solid-color buffer in the configured format —
-/// enough to drive pipeline plumbing without a real capture device.
+/// enough to drive pipeline plumbing without a real capture device. Faults are
+/// queued via [`SimulatedVideoSource::inject`] and consumed in order, one per
+/// `next_frame` call.
 #[derive(Default)]
 pub struct SimulatedVideoSource {
     config: CaptureConfig,
     started: bool,
     frames: u64,
+    faults: VecDeque<VideoFault>,
+    disconnected: bool,
 }
 
 impl SimulatedVideoSource {
@@ -99,17 +117,23 @@ impl SimulatedVideoSource {
     pub fn with_config(config: CaptureConfig) -> Self {
         Self {
             config,
-            started: false,
-            frames: 0,
+            ..Self::default()
         }
     }
 
-    fn synth_frame(&self) -> Frame {
-        // A trivially small placeholder payload; W2.3/W2.5 replace this with
-        // real synthetic MJPEG/YUYV bytes derived from W1.2 fixtures.
-        let data = match self.config.format {
-            PixelFormat::Mjpeg => vec![0xFF, 0xD8, 0xFF, 0xD9], // empty JPEG SOI/EOI
-            PixelFormat::Yuyv => vec![0x00, 0x80, 0x00, 0x80],
+    /// Queues a fault to be applied on an upcoming `next_frame` call.
+    pub fn inject(&mut self, fault: VideoFault) {
+        self.faults.push_back(fault);
+    }
+
+    fn synth_frame(&self, corrupt: bool) -> Frame {
+        let data = match (self.config.format, corrupt) {
+            // A minimal valid-looking MJPEG (empty SOI/EOI) vs a truncated one.
+            (PixelFormat::Mjpeg, false) => vec![0xFF, 0xD8, 0xFF, 0xD9],
+            (PixelFormat::Mjpeg, true) => vec![0xFF, 0xD8], // truncated: no EOI
+            (PixelFormat::Yuyv, false) => vec![0x00, 0x80, 0x00, 0x80],
+            // A YUYV frame that is too short for its declared dimensions.
+            (PixelFormat::Yuyv, true) => vec![0x00],
         };
         let bytes_per_line = match self.config.format {
             PixelFormat::Mjpeg => 0,
@@ -162,11 +186,27 @@ impl VideoSource for SimulatedVideoSource {
     }
 
     fn next_frame(&mut self, _timeout: Duration) -> Result<Frame> {
+        if self.disconnected {
+            return Err(Error::Video("device disconnected".to_string()));
+        }
         if !self.started {
             return Err(Error::Video("capture not started".to_string()));
         }
-        self.frames += 1;
-        Ok(self.synth_frame())
+        match self.faults.pop_front() {
+            Some(VideoFault::Timeout) => Err(Error::Timeout),
+            Some(VideoFault::Disconnect) => {
+                self.disconnected = true;
+                Err(Error::Video("device disconnected".to_string()))
+            }
+            Some(VideoFault::CorruptFrame) => {
+                self.frames += 1;
+                Ok(self.synth_frame(true))
+            }
+            None => {
+                self.frames += 1;
+                Ok(self.synth_frame(false))
+            }
+        }
     }
 }
 
@@ -215,6 +255,35 @@ mod tests {
         v.start().unwrap();
         let f = v.next_frame(Duration::from_millis(0)).unwrap();
         assert_eq!(f.format, PixelFormat::Mjpeg);
+    }
+
+    #[test]
+    fn simulated_video_injects_faults_in_order() {
+        let mut v = SimulatedVideoSource::new();
+        v.start().unwrap();
+        v.inject(VideoFault::Timeout);
+        v.inject(VideoFault::CorruptFrame);
+        // First call: timeout.
+        assert!(matches!(
+            v.next_frame(Duration::from_millis(0)),
+            Err(openterface_core::Error::Timeout)
+        ));
+        // Second call: a corrupt (truncated) frame is still returned.
+        let corrupt = v.next_frame(Duration::from_millis(0)).unwrap();
+        assert_eq!(corrupt.data, vec![0xFF, 0xD8]); // no EOI
+                                                    // Third call: back to a normal frame.
+        let ok = v.next_frame(Duration::from_millis(0)).unwrap();
+        assert_eq!(ok.data, vec![0xFF, 0xD8, 0xFF, 0xD9]);
+    }
+
+    #[test]
+    fn simulated_video_disconnect_is_sticky() {
+        let mut v = SimulatedVideoSource::new();
+        v.start().unwrap();
+        v.inject(VideoFault::Disconnect);
+        assert!(v.next_frame(Duration::from_millis(0)).is_err());
+        // Stays disconnected on subsequent calls.
+        assert!(v.next_frame(Duration::from_millis(0)).is_err());
     }
 
     #[test]

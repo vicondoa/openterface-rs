@@ -9,6 +9,9 @@ use std::time::Duration;
 
 use crate::Result;
 
+#[cfg(feature = "video-backend")]
+pub mod backend;
+
 /// Pixel/encoding format of a captured frame.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PixelFormat {

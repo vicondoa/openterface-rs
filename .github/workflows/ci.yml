@@ -25,7 +25,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libudev-dev libv4l-dev \
-            libwayland-dev libxkbcommon-dev
+            libwayland-dev libxkbcommon-dev \
+            clang libclang-dev
 
       - name: Format
         run: cargo fmt --all --check
@@ -34,7 +35,7 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Clippy (hardware backends)
-        run: cargo clippy -p openterface-core --features serial-backend --lib -- -D warnings
+        run: cargo clippy -p openterface-core --features serial-backend,video-backend --lib -- -D warnings
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest

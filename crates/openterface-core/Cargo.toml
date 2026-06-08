@@ -14,11 +14,14 @@ thiserror.workspace = true
 tracing.workspace = true
 zune-jpeg = "0.4"
 serialport = { version = "4", optional = true }
+v4l = { version = "0.14", optional = true }
 
 [features]
 # Real OS-backed serial transport (links libudev on Linux for enumeration).
 # Off by default so the no-hardware test build stays light and fast.
 serial-backend = ["dep:serialport"]
+# Real V4L2 capture backend (links libv4l on Linux). Off by default.
+video-backend = ["dep:v4l"]
 
 [dev-dependencies]
 proptest = "1"

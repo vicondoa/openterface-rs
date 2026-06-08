@@ -36,7 +36,10 @@
             rustfmt
             cargo-nextest
             cargo-deny
+            # bindgen (v4l2-sys) needs libclang.
+            clang
           ];
+          LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
           # winit/wgpu dlopen Wayland + Vulkan at runtime.
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath buildInputs;
         };
