@@ -9,8 +9,22 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 
+[features]
+# The actual on-screen window + GPU renderer. Off by default so the pure
+# coordinate/throttle logic builds and tests with no winit/wgpu/system libs;
+# the release/Nix build enables it. A `gpu-tests` sub-gate runs the headless
+# render test only where a (software) adapter is available.
+display = ["dep:winit", "dep:wgpu", "dep:pollster", "dep:raw-window-handle", "dep:bytemuck"]
+gpu-tests = ["display"]
+
 [dependencies]
 openterface-core.workspace = true
+tracing.workspace = true
+winit = { version = "0.30", default-features = false, features = ["wayland", "wayland-dlopen", "rwh_06"], optional = true }
+wgpu = { version = "22", optional = true }
+pollster = { version = "0.3", optional = true }
+raw-window-handle = { version = "0.6", optional = true }
+bytemuck = { version = "1", features = ["derive"], optional = true }
 
 [lints]
 workspace = true

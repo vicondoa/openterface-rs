@@ -38,6 +38,7 @@ jobs:
         run: |
           cargo clippy -p openterface-core --features serial-backend,video-backend --lib -- -D warnings
           cargo clippy -p openterface-cli --features hardware --all-targets -- -D warnings
+          cargo clippy -p openterface-gui --features display --all-targets -- -D warnings
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -53,3 +54,21 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check advisories bans licenses sources
+
+  gpu-render:
+    name: headless render (lavapipe)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Install software Vulkan + windowing libs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            mesa-vulkan-drivers vulkan-tools \
+            libwayland-dev libxkbcommon-dev
+      - name: Headless render test (software adapter)
+        env:
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+          WGPU_BACKEND: vulkan
+        run: cargo test -p openterface-gui --features gpu-tests --test headless_render -- --nocapture
