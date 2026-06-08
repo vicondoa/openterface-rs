@@ -13,13 +13,25 @@ use openterface_core::decode::RgbaImage;
 fn renders_uploaded_frame_offscreen() {
     let instance = wgpu::Instance::default();
     let require = std::env::var("OPENTERFACE_REQUIRE_GPU").is_ok();
-    let Some(adapter) =
+    // Enumerate adapters and prefer a software/CPU one (e.g. Mesa lavapipe,
+    // which presents as a regular Vulkan adapter of device type Cpu rather than
+    // a wgpu "fallback" adapter, so `force_fallback_adapter` alone misses it).
+    let mut adapters = instance.enumerate_adapters(wgpu::Backends::all());
+    adapters.sort_by_key(|a| match a.get_info().device_type {
+        wgpu::DeviceType::Cpu => 0,
+        wgpu::DeviceType::IntegratedGpu => 1,
+        wgpu::DeviceType::VirtualGpu => 2,
+        wgpu::DeviceType::DiscreteGpu => 3,
+        wgpu::DeviceType::Other => 4,
+    });
+    let adapter = adapters.into_iter().next().or_else(|| {
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::LowPower,
             compatible_surface: None,
-            force_fallback_adapter: true, // prefer a software adapter
+            force_fallback_adapter: true,
         }))
-    else {
+    });
+    let Some(adapter) = adapter else {
         if require {
             panic!("OPENTERFACE_REQUIRE_GPU is set but no wgpu adapter was found");
         }

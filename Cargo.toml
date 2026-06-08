@@ -18,6 +18,7 @@ authors = ["openterface-rs contributors"]
 
 [workspace.dependencies]
 openterface-core = { path = "crates/openterface-core", version = "0.0.0" }
+openterface-gui = { path = "crates/openterface-gui", version = "0.0.0" }
 openterface-test-support = { path = "crates/openterface-test-support", version = "0.0.0" }
 thiserror = "1"
 tracing = "0.1"

@@ -3,6 +3,14 @@
 [advisories]
 version = 2
 yanked = "deny"
+ignore = [
+    # RUSTSEC-2024-0436: `paste` is unmaintained (author archived it). It is a
+    # build-time-only proc-macro pulled transitively via the wgpu/winit tree
+    # (not a runtime dependency) and carries no security vulnerability — only an
+    # "unmaintained" notice. No supported drop-in replacement is wired through
+    # our upstreams yet, so we accept it until wgpu migrates off it.
+    "RUSTSEC-2024-0436",
+]
 
 [licenses]
 version = 2
