@@ -96,6 +96,27 @@ impl Session {
         })
     }
 
+    /// Starts an **input-only** session: the paced serial writer thread with no
+    /// video capture. Used by `connect --no-video` for serial/input-only
+    /// forwarding (the GUI still provides input; no frames are shown).
+    pub fn start_input_only<T>(mut serial: T, pacing: PacingConfig) -> Result<Session>
+    where
+        T: SerialTransport + 'static,
+    {
+        let running = Arc::new(AtomicBool::new(true));
+        let (input_tx, input_rx) = std::sync::mpsc::channel::<InputEvent>();
+        let writer = std::thread::Builder::new()
+            .name("openterface-serial".into())
+            .spawn(move || writer_loop(&mut serial, &input_rx, pacing))
+            .map_err(crate::Error::Io)?;
+        Ok(Session {
+            input_tx: Some(input_tx),
+            running,
+            writer: Some(writer),
+            capture: None,
+        })
+    }
+
     /// Forwards an input event to the target (non-blocking).
     pub fn send_input(&self, event: InputEvent) {
         if let Some(tx) = &self.input_tx {
@@ -345,6 +366,24 @@ mod tests {
             std::thread::sleep(Duration::from_millis(2));
         }
         pred()
+    }
+
+    #[test]
+    fn input_only_session_forwards_without_video() {
+        // `--no-video`: a serial-only session forwards input with no capture.
+        let sink = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let serial = VecSerial(std::sync::Arc::clone(&sink));
+        let mut session = Session::start_input_only(serial, PacingConfig::default()).unwrap();
+        session.send_text("a");
+        let press = ch9329::keyboard(Modifiers::NONE, &[HidUsage(0x04)]);
+        assert!(
+            wait_until(
+                || ordered_subslices(&sink.lock().unwrap(), &[&press]),
+                Duration::from_secs(1)
+            ),
+            "the 'a' key report should reach the serial sink"
+        );
+        session.shutdown();
     }
 
     #[test]

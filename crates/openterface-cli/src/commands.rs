@@ -223,28 +223,12 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
         .or_else(|| dev.and_then(|d| d.serial_path.clone()));
 
     if args.no_video {
-        eprintln!("--no-video: a display session requires video; nothing to show.");
-        return ExitCode::Failure;
-    }
-    let Some(video_path) = video_path else {
-        eprintln!("No Openterface capture device found. Try: openterface-rs scan");
-        return ExitCode::Failure;
-    };
-
-    let mut video = match V4l2Source::open(&video_path.to_string_lossy()) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("Failed to open video device {}: {e}", video_path.display());
-            return ExitCode::Failure;
-        }
-    };
-    if let Err(e) = video.configure(CaptureConfig::default()) {
-        eprintln!("Failed to configure capture: {e}");
-        return ExitCode::Failure;
+        println!("- Video disabled by --no-video flag");
     }
 
-    // Serial is optional (input forwarding); without it we still show video.
+    // Build the serial transport first (shared by the video and no-video paths).
     let serial: Box<dyn openterface_core::serial::SerialTransport> = if args.no_serial {
+        println!("- Serial disabled by --no-serial flag");
         Box::new(NullSerial)
     } else if let Some(sp) = &serial_path {
         match SerialPortTransport::open(&sp.to_string_lossy()) {
@@ -269,6 +253,53 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
         eprintln!("No serial control device found; input forwarding disabled.");
         Box::new(NullSerial)
     };
+
+    // --no-video: an input-only session with a blank window for input capture
+    // (C++ parity: the GUI still forwards keyboard/mouse, no video is shown).
+    if args.no_video {
+        let session = match Session::start_input_only(serial, PacingConfig::from_env()) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Failed to start session: {e}");
+                return ExitCode::Failure;
+            }
+        };
+        if args.debug {
+            println!("Debug mode enabled - input events will be logged");
+        }
+        let cfg = RunConfig {
+            session: Some(session),
+            frames: None,
+            fullscreen,
+            title: "Openterface KVM (no video)".to_string(),
+            debug: args.debug,
+        };
+        return match run(cfg) {
+            Ok(()) => ExitCode::Success,
+            Err(e) => {
+                eprintln!("display error: {e}");
+                ExitCode::Failure
+            }
+        };
+    }
+
+    // Video path: a capture device is required.
+    let Some(video_path) = video_path else {
+        eprintln!("No Openterface capture device found. Try: openterface-rs scan");
+        return ExitCode::Failure;
+    };
+
+    let mut video = match V4l2Source::open(&video_path.to_string_lossy()) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Failed to open video device {}: {e}", video_path.display());
+            return ExitCode::Failure;
+        }
+    };
+    if let Err(e) = video.configure(CaptureConfig::default()) {
+        eprintln!("Failed to configure capture: {e}");
+        return ExitCode::Failure;
+    }
 
     let (frame_tx, frame_rx) = std::sync::mpsc::sync_channel(4);
     let session = match Session::start(

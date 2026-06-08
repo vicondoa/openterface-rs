@@ -49,9 +49,8 @@ keyboard/mouse over one USB cable).
 
 ### Known deviations from the C++ CLI
 - Runtime failures exit **`1`** (not the C++ `0`); usage errors exit `2`.
-- `connect --no-video` is rejected (the session is display-driven); use
-  `--no-serial` for video-only.
 - `status` is detection-based rather than in-process connection state.
-- `OPENTERFACE_USE_LIBDECOR` is not yet wired (winit manages CSD automatically).
+- `OPENTERFACE_USE_LIBDECOR=0` falls back to a bare xdg-shell window; full
+  CSD/SSD negotiation parity beyond that is best-effort under winit.
 
 [Unreleased]: https://github.com/vicondoa/openterface-rs/compare/main...HEAD
