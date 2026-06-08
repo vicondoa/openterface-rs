@@ -518,6 +518,7 @@ name = "openterface-core"
 version = "0.0.0"
 dependencies = [
  "nix 0.29.0",
+ "openterface-test-support",
  "proptest",
  "serialport",
  "thiserror 1.0.69",
