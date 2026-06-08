@@ -20,7 +20,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::platform::wayland::WindowAttributesExtWayland;
 use winit::window::{Window, WindowId};
 
-use crate::coord::window_to_abs;
+use crate::coord::{window_to_abs, window_to_abs_fit};
 use crate::input_map::{mouse_button, physical_to_hid};
 use crate::throttle::{FrameThrottle, ThrottleConfig};
 
@@ -68,6 +68,10 @@ struct App {
     frames_seen: u64,
     uploads: u64,
     decode_errors: u64,
+    /// Native size of the most recently displayed frame, used to map the pointer
+    /// through the same letterbox/pillarbox fit the renderer applies. `None`
+    /// until the first frame is shown (no video on screen yet).
+    frame_size: Option<(u32, u32)>,
 }
 
 impl App {
@@ -82,6 +86,7 @@ impl App {
             frames_seen: 0,
             uploads: 0,
             decode_errors: 0,
+            frame_size: None,
         }
     }
 
@@ -141,6 +146,7 @@ impl App {
                         if self.throttle.should_upload(now, &img.pixels) {
                             let gpu = self.gpu.as_mut().expect("checked above");
                             gpu.renderer.upload(&img);
+                            self.frame_size = Some((img.width, img.height));
                             gpu.window.request_redraw();
                             uploaded = true;
                             if self.uploads == 0 {
@@ -239,6 +245,7 @@ impl ApplicationHandler for App {
         // not blank and the render path is exercised without a device.
         if self.cfg.frames.is_none() {
             renderer.upload(&test_pattern(640, 360));
+            self.frame_size = Some((640, 360));
         }
 
         self.gpu = Some(GpuWindow {
@@ -300,8 +307,26 @@ impl ApplicationHandler for App {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 if let Some(gpu) = self.gpu.as_ref() {
-                    let pos =
-                        window_to_abs(position.x, position.y, gpu.config.width, gpu.config.height);
+                    // Map through the same contain-fit the renderer uses so the
+                    // pointer lands on the right target pixel and the black bars
+                    // are excluded. Before the first frame, fall back to the full
+                    // surface (nothing is displayed yet anyway).
+                    let pos = match self.frame_size {
+                        Some((tw, th)) => window_to_abs_fit(
+                            position.x,
+                            position.y,
+                            tw,
+                            th,
+                            gpu.config.width,
+                            gpu.config.height,
+                        ),
+                        None => window_to_abs(
+                            position.x,
+                            position.y,
+                            gpu.config.width,
+                            gpu.config.height,
+                        ),
+                    };
                     self.throttle.note_input(self.now());
                     self.send(InputEvent::MouseMoveAbsolute { pos });
                 }
