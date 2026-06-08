@@ -6,34 +6,46 @@
 
 use std::path::Path;
 
-use openterface_core::discovery::{DeviceInfo, DeviceScanner, SysfsScanner};
+use openterface_core::discovery::{DeviceScanner, SysfsScanner};
 
 use crate::cli::{ConnectArgs, ExitCode, ResetArgs};
 
-/// `scan` — enumerate Openterface devices.
-pub(crate) fn scan(verbose: bool) -> ExitCode {
+/// `scan` — enumerate Openterface devices (all matching video + serial nodes).
+pub(crate) fn scan(_verbose: bool) -> ExitCode {
     println!("Scanning for Openterface USB KVM devices...");
-    let devices = match SysfsScanner::new().scan() {
-        Ok(d) => d,
-        Err(e) => {
-            eprintln!("scan failed: {e}");
-            return ExitCode::Failure;
+    let scanner = SysfsScanner::new();
+    let videos = scanner.video_nodes();
+    let serials = scanner.serial_nodes();
+
+    println!("\n=== Video Devices ===");
+    if videos.is_empty() {
+        println!("(none found)");
+    } else {
+        for v in &videos {
+            println!("Found: {}", v.display());
         }
-    };
-    if devices.is_empty() {
-        println!("No Openterface devices detected.");
+    }
+
+    println!("\n=== Serial Devices ===");
+    if serials.is_empty() {
+        println!("(none found)");
+    } else {
+        for (s, (vid, pid)) in &serials {
+            println!("Found: {} (VID:PID {vid:04x}:{pid:04x})", s.display());
+        }
+    }
+
+    if videos.is_empty() && serials.is_empty() {
+        println!("\nNo Openterface devices detected.");
         println!("Ensure the device is plugged in and recognized by the system.");
         println!("Or use: openterface-rs connect --dummy");
         return ExitCode::Success;
     }
-    for dev in &devices {
-        print_device(dev, verbose);
-    }
-    if let Some(dev) = devices.iter().find(|d| d.is_complete()) {
+    if let (Some(v), Some((s, _))) = (videos.first(), serials.first()) {
         println!(
             "\nRecommended: openterface-rs connect --video={} --serial={}",
-            display_path(dev.video_path.as_deref()),
-            display_path(dev.serial_path.as_deref()),
+            v.display(),
+            s.display(),
         );
     }
     ExitCode::Success
@@ -67,28 +79,6 @@ pub(crate) fn status(_verbose: bool) -> ExitCode {
         }
     );
     ExitCode::Success
-}
-
-fn print_device(dev: &DeviceInfo, verbose: bool) {
-    println!("Found: {}", dev.description);
-    if let Some(v) = &dev.video_path {
-        println!("  video:  {}", v.display());
-    }
-    if let Some(s) = &dev.serial_path {
-        let ids = match (dev.serial_vendor_id, dev.serial_product_id) {
-            (Some(v), Some(p)) => format!(" (VID:PID {v:04x}:{p:04x})"),
-            _ => String::new(),
-        };
-        println!("  serial: {}{}", s.display(), ids);
-    }
-    if verbose && !dev.is_complete() {
-        println!("  (incomplete: only one endpoint detected)");
-    }
-}
-
-fn display_path(p: Option<&Path>) -> String {
-    p.map(|p| p.display().to_string())
-        .unwrap_or_else(|| "<none>".to_string())
 }
 
 /// `reset` — factory-reset the CH9329. Requires `--serial`; needs `hardware`.

@@ -232,6 +232,19 @@ impl SysfsScanner {
         // preference for ACM nodes.
         found
     }
+
+    /// All detected Openterface capture node paths (for `scan` enumeration).
+    #[must_use]
+    pub fn video_nodes(&self) -> Vec<PathBuf> {
+        self.scan_video().into_iter().map(|(p, _)| p).collect()
+    }
+
+    /// All detected Openterface serial nodes with their USB (vendor, product)
+    /// IDs (for `scan` enumeration).
+    #[must_use]
+    pub fn serial_nodes(&self) -> Vec<(PathBuf, (u16, u16))> {
+        self.scan_serial()
+    }
 }
 
 impl DeviceScanner for SysfsScanner {
