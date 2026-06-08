@@ -17,7 +17,9 @@
    `cargo clippy --all-targets -- -D warnings`, `cargo test` (and `nextest`
    once wired).
 
-**Current status:** `W1 — Spikes + behavioral spec` **complete** (panel 6/6).
+**Current status:** `W2 — Core fan-out` — all six modules implemented (protocol,
+HID, decode, serial, video, discovery); 56 hardware-free tests + PTY test. W2
+work-review panel gate in progress.
 Next: `W2 — Core fan-out` (protocol, HID, decode, serial, video, discovery).
 
 ---
@@ -103,12 +105,12 @@ CI, license/docs stubs, and the public repo created + protected.*
 
 ## W2 — Core fan-out (fan-out ×6)
 
-- [ ] `W2.1` `protocol/ch9329` encode/decode + checksums + golden vectors.
-- [ ] `W2.2` `protocol/hid` usage tables + keysym→HID (physical vs `sendText` split).
-- [ ] `W2.3` `decode` MJPEG (zune-jpeg) + YUYV→RGBA (← W1.2 fixtures).
-- [ ] `W2.4` `serial` transport (serialport + `MockSerial` + fault injection + PTY test + baud fallback).
-- [ ] `W2.5` `video` source (v4l impl + `SimulatedVideoSource` + fault injection).
-- [ ] `W2.6` `discovery` (udev/sysfs + `FixtureScanner` + `scan`/`status`; uvcvideo+MJPG selection).
+- [x] `W2.1` CH9329 command builders + golden/property tests.
+- [x] `W2.2` HID usage tables + evdev->HID + modifier/sendText maps.
+- [x] `W2.3` MJPEG (zune-jpeg) + YUYV->RGBA decode (real JPEG fixture).
+- [x] `W2.4` serial baud-fallback + CH9329 response parse + serialport backend + PTY test.
+- [x] `W2.5` fault-injecting video simulator + feature-gated v4l backend.
+- [x] `W2.6` pure-sysfs discovery (skips virtio node).
 - [ ] **W2 panel gate** (rust, protocol, video, input, test, security).
 
 ## W3 — Integration (×~2)
