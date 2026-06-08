@@ -139,6 +139,7 @@ impl PacingScheduler {
             }
             InputEvent::MouseButton { button, pressed } => {
                 self.buttons = self.buttons.with(button, pressed);
+                self.flush_pending_relative_move();
                 self.priority.push_back(self.mouse_button_command());
             }
             InputEvent::Key {
@@ -153,6 +154,7 @@ impl PacingScheduler {
             }
             InputEvent::Scroll { delta } => {
                 // Scroll is a relative CH9329 frame carrying the wheel byte.
+                self.flush_pending_relative_move();
                 self.priority
                     .push_back(ch9329::mouse_relative(0, 0, self.buttons, delta));
             }
@@ -207,6 +209,20 @@ impl PacingScheduler {
                 let dx = dx.clamp(-127, 127) as i8;
                 let dy = dy.clamp(-127, 127) as i8;
                 ch9329::mouse_relative(dx, dy, self.buttons, 0)
+            }
+        }
+    }
+
+    fn flush_pending_relative_move(&mut self) {
+        // In relative mode a position-dependent priority command (button/scroll)
+        // must not jump ahead of an un-sent relative move, or it would apply at
+        // the pre-move position. A zero-delta relative button frame cannot carry
+        // the pending delta, so flush the accumulated move ahead of the command.
+        if self.relative_mode {
+            if let Some(mv @ PendingMove::Relative { .. }) = self.pending_move {
+                let cmd = self.move_command(mv);
+                self.priority.push_back(cmd);
+                self.pending_move = None;
             }
         }
     }
@@ -449,6 +465,28 @@ mod tests {
         let cmd = s.poll(t0 + Duration::from_millis(33)).unwrap();
         assert_eq!(cmd[3], ch9329::cmd::MOUSE_REL);
         assert_eq!(cmd[6], ButtonMask::LEFT.0);
+    }
+
+    #[test]
+    fn relative_move_flushes_before_click_in_same_batch() {
+        let mut s = sched();
+        let t0 = Instant::now();
+        // Enter relative mode and accumulate a move, all before any poll.
+        s.submit(InputEvent::MouseMoveRelative { dx: 7, dy: -4 });
+        s.submit(InputEvent::MouseButton {
+            button: MouseButton::Left,
+            pressed: true,
+        });
+        // The move must come out FIRST (with its delta), then the click.
+        let first = s.poll(t0).unwrap();
+        assert_eq!(first[3], ch9329::cmd::MOUSE_REL);
+        assert_eq!(first[7] as i8, 7); // dx
+        assert_eq!(first[8] as i8, -4); // dy
+        let second = s.poll(t0).unwrap();
+        assert_eq!(second[3], ch9329::cmd::MOUSE_REL);
+        assert_eq!(second[6], ButtonMask::LEFT.0); // the click
+                                                   // No leftover pending move.
+        assert!(s.poll(t0 + Duration::from_millis(100)).is_none());
     }
 
     #[test]
