@@ -150,6 +150,11 @@ pub enum InputEvent {
         /// Wheel delta.
         delta: i8,
     },
+    /// Release **all** held keys, modifiers, and mouse buttons.
+    ///
+    /// Sent when the window loses focus or the pointer leaves, so the target
+    /// never sees a key/button stuck down (matching the C++ focus-loss release).
+    ReleaseAll,
 }
 
 impl InputEvent {
@@ -162,7 +167,9 @@ impl InputEvent {
     pub fn is_release(self) -> bool {
         matches!(
             self,
-            InputEvent::Key { pressed: false, .. } | InputEvent::MouseButton { pressed: false, .. }
+            InputEvent::Key { pressed: false, .. }
+                | InputEvent::MouseButton { pressed: false, .. }
+                | InputEvent::ReleaseAll
         )
     }
 

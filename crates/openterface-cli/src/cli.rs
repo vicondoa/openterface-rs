@@ -18,9 +18,6 @@ pub(crate) enum ExitCode {
     /// Command completed successfully.
     Success = 0,
     /// A runtime failure (e.g. no device found, connection failed).
-    ///
-    /// Reserved for the command implementations in W4.1.
-    #[expect(dead_code, reason = "returned by command impls landing in W4.1")]
     Failure = 1,
 }
 
@@ -112,16 +109,14 @@ pub(crate) struct ResetArgs {
 }
 
 impl Cli {
-    /// Runs the parsed command. W1.4 ships stubs; W4.1/W5 implement these.
+    /// Runs the parsed command.
     pub(crate) fn run(self) -> ExitCode {
-        let name = match &self.command {
-            Command::Connect(_) => "connect",
-            Command::Scan => "scan",
-            Command::Status => "status",
-            Command::Reset(_) => "reset",
-        };
-        eprintln!("openterface-rs: `{name}` is not yet implemented (lands in W4.1/W5)");
-        ExitCode::Success
+        match &self.command {
+            Command::Connect(args) => crate::commands::connect(args, self.verbose),
+            Command::Scan => crate::commands::scan(self.verbose),
+            Command::Status => crate::commands::status(self.verbose),
+            Command::Reset(args) => crate::commands::reset(args, self.verbose),
+        }
     }
 }
 

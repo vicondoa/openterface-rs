@@ -41,6 +41,18 @@ pub trait SerialTransport: Send {
     fn set_baud_rate(&mut self, baud: u32) -> Result<()>;
 }
 
+impl SerialTransport for Box<dyn SerialTransport> {
+    fn write_all(&mut self, bytes: &[u8]) -> Result<()> {
+        (**self).write_all(bytes)
+    }
+    fn read(&mut self, buf: &mut [u8], timeout: Duration) -> Result<usize> {
+        (**self).read(buf, timeout)
+    }
+    fn set_baud_rate(&mut self, baud: u32) -> Result<()> {
+        (**self).set_baud_rate(baud)
+    }
+}
+
 /// Outcome of [`connect_with_fallback`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Connection {

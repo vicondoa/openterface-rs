@@ -161,6 +161,17 @@ impl PacingScheduler {
                 self.priority
                     .push_back(ch9329::mouse_relative(0, 0, self.buttons, delta));
             }
+            InputEvent::ReleaseAll => {
+                // Drop any pending move and clear all held state, then enqueue
+                // an all-zero keyboard report and a no-button mouse frame so the
+                // target releases everything immediately (focus-loss safety).
+                self.pending_move = None;
+                self.held_keys.clear();
+                self.modifiers = Modifiers::NONE;
+                self.buttons = ButtonMask::NONE;
+                self.priority.push_back(ch9329::keyboard_release());
+                self.priority.push_back(self.mouse_button_command());
+            }
         }
     }
 
@@ -522,6 +533,42 @@ mod tests {
         assert_eq!(drag[7] as i8, 5);
         let release = s.poll(t0).unwrap();
         assert_eq!(release[6], ButtonMask::NONE.0, "release clears the button");
+    }
+
+    #[test]
+    fn release_all_clears_state_and_emits_releases() {
+        let mut s = sched();
+        let t0 = Instant::now();
+        // Establish an absolute position, hold a key and a button.
+        s.submit(InputEvent::MouseMoveAbsolute {
+            pos: AbsPosition { x: 10, y: 10 },
+        });
+        s.submit(InputEvent::Key {
+            usage: HidUsage(0x04),
+            modifiers: Modifiers::LEFT_CTRL,
+            pressed: true,
+        });
+        s.submit(InputEvent::MouseButton {
+            button: MouseButton::Left,
+            pressed: true,
+        });
+        while s.poll(t0).is_some() {}
+        // ReleaseAll.
+        s.submit(InputEvent::ReleaseAll);
+        let kb = s.poll(t0).unwrap();
+        assert_eq!(kb, ch9329::keyboard_release()); // all-zero key report
+        let mouse = s.poll(t0).unwrap();
+        assert_eq!(mouse[3], ch9329::cmd::MOUSE_ABS);
+        assert_eq!(mouse[6], ButtonMask::NONE.0); // no buttons held
+                                                  // A subsequent key press starts from a clean modifier/held state.
+        s.submit(InputEvent::Key {
+            usage: HidUsage(0x05),
+            modifiers: Modifiers::NONE,
+            pressed: true,
+        });
+        let next = s.poll(t0).unwrap();
+        assert_eq!(next[5], 0); // no leftover modifier
+        assert_eq!(&next[8..13], &[0, 0, 0, 0, 0]); // only one key held
     }
 
     #[test]

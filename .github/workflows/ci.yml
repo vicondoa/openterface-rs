@@ -35,7 +35,10 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Clippy (hardware backends)
-        run: cargo clippy -p openterface-core --features serial-backend,video-backend --lib -- -D warnings
+        run: |
+          cargo clippy -p openterface-core --features serial-backend,video-backend --lib -- -D warnings
+          cargo clippy -p openterface-cli --features hardware --all-targets -- -D warnings
+          cargo clippy -p openterface-gui --features display --all-targets -- -D warnings
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -51,3 +54,34 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check advisories bans licenses sources
+
+  gpu-render:
+    name: headless render (lavapipe)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Install software Vulkan + windowing libs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            mesa-vulkan-drivers vulkan-tools libvulkan1 \
+            libwayland-dev libxkbcommon-dev
+      - name: Locate lavapipe ICD and verify it loads
+        run: |
+          set -x
+          ls -la /usr/share/vulkan/icd.d/ || true
+          dpkg -L mesa-vulkan-drivers | grep -iE 'icd|lvp|libvulkan_lvp' || true
+          LVP="$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1)"
+          if [ -z "$LVP" ]; then
+            echo "::error::No lavapipe ICD found under /usr/share/vulkan/icd.d/"
+            exit 1
+          fi
+          echo "VK_ICD_FILENAMES=$LVP" >> "$GITHUB_ENV"
+          # Diagnostic only: confirm the loader can see lavapipe.
+          VK_ICD_FILENAMES="$LVP" vulkaninfo --summary 2>&1 | head -40 || true
+      - name: Headless render test (software adapter)
+        env:
+          WGPU_BACKEND: vulkan
+          OPENTERFACE_REQUIRE_GPU: "1"
+        run: cargo test -p openterface-gui --features gpu-tests --test headless_render -- --nocapture
