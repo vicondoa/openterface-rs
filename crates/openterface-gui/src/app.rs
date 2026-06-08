@@ -65,6 +65,9 @@ struct App {
     /// A window resize whose GPU surface reconfigure is deferred to the next
     /// redraw, off the event-dispatch path (C++ resize-off-input-thread parity).
     pending_resize: Option<(u32, u32)>,
+    frames_seen: u64,
+    uploads: u64,
+    decode_errors: u64,
 }
 
 impl App {
@@ -76,6 +79,9 @@ impl App {
             mod_byte: Modifiers::NONE,
             start: Instant::now(),
             pending_resize: None,
+            frames_seen: 0,
+            uploads: 0,
+            decode_errors: 0,
         }
     }
 
@@ -125,13 +131,33 @@ impl App {
         }
         let mut uploaded = false;
         if let Some(frame) = newest {
+            self.frames_seen += 1;
+            if self.frames_seen == 1 {
+                tracing::debug!(bytes = frame.data.len(), "first frame reached GUI");
+            }
             if self.throttle.should_decode(now, &frame.data) {
-                if let Ok(img) = decode_frame(&frame) {
-                    if self.throttle.should_upload(now, &img.pixels) {
-                        let gpu = self.gpu.as_mut().expect("checked above");
-                        gpu.renderer.upload(&img);
-                        gpu.window.request_redraw();
-                        uploaded = true;
+                match decode_frame(&frame) {
+                    Ok(img) => {
+                        if self.throttle.should_upload(now, &img.pixels) {
+                            let gpu = self.gpu.as_mut().expect("checked above");
+                            gpu.renderer.upload(&img);
+                            gpu.window.request_redraw();
+                            uploaded = true;
+                            if self.uploads == 0 {
+                                tracing::debug!(
+                                    w = img.width,
+                                    h = img.height,
+                                    "first frame uploaded to GPU"
+                                );
+                            }
+                            self.uploads += 1;
+                        }
+                    }
+                    Err(e) => {
+                        self.decode_errors += 1;
+                        if self.decode_errors == 1 || self.decode_errors.is_multiple_of(120) {
+                            tracing::warn!(errors = self.decode_errors, error = %e, "decode failed");
+                        }
                     }
                 }
             }

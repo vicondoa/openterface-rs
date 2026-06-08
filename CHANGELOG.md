@@ -6,6 +6,25 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-06-08
+
+### Fixed
+- **On-screen video showed a black window with real hardware.** The capture
+  thread polled the V4L2 backend with a 10 ms timeout, but the backend rebuilds
+  the MMAP stream on every timed-out dequeue (a workaround for a v4l buffer-
+  bookkeeping wedge). At 1080p MJPG the first frame after `STREAMON` takes longer
+  than 10 ms, so the stream was perpetually torn down and rebuilt and **no frame
+  ever reached the renderer**. The capture loop now waits up to 1 s for a frame,
+  so a normal dequeue is no longer mistaken for a stall. The hardware-free tests
+  missed this because the simulated source delivers frames instantly; a new
+  `capture_loop_survives_first_frame_warmup` regression test now models a
+  device with first-frame warm-up and fails if the timeout is ever shortened.
+
+### Added
+- Gated `tracing` diagnostics on the capture → decode → GPU-upload path (first
+  frame, periodic frame counts, capture stalls, and decode failures), which were
+  previously silent — making future black-window regressions diagnosable.
+
 ## [1.0.0] - 2026-06-08
 
 openterface-rs is a native-Linux, Wayland-only, Qt-free Rust reimplementation of
@@ -57,5 +76,6 @@ the Openterface Mini-KVM host CLI, at **core-KVM parity** with the C++ CLI (vide
 - `OPENTERFACE_USE_LIBDECOR=0` falls back to a bare xdg-shell window; full
   CSD/SSD negotiation parity beyond that is best-effort under winit.
 
-[Unreleased]: https://github.com/vicondoa/openterface-rs/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/vicondoa/openterface-rs/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/vicondoa/openterface-rs/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/vicondoa/openterface-rs/releases/tag/v1.0.0
