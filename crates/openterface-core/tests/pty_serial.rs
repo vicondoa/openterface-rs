@@ -18,27 +18,24 @@ use openterface_core::protocol::ch9329;
 use openterface_core::serial::{connect_with_fallback, SerialTransport, BAUD_PRIMARY};
 use openterface_core::Result;
 
-/// A `SerialTransport` over a raw fd (the PTY master).
-struct FdTransport {
-    fd: OwnedFd,
+/// A `SerialTransport` that owns one end of the PTY as a `File`.
+///
+/// The `File` is the sole owner of the fd (built from the `OwnedFd`), so there
+/// is no double-close hazard.
+struct FileTransport {
+    file: std::fs::File,
 }
 
-impl SerialTransport for FdTransport {
+impl SerialTransport for FileTransport {
     fn write_all(&mut self, bytes: &[u8]) -> Result<()> {
-        let mut file = unsafe { fd_as_file(self.fd.as_raw_fd()) };
-        file.write_all(bytes).unwrap();
-        std::mem::forget(file); // don't close the borrowed fd
+        self.file.write_all(bytes).unwrap();
         Ok(())
     }
 
     fn read(&mut self, buf: &mut [u8], timeout: Duration) -> Result<usize> {
-        // The PTY is opened non-blocking-ish via a short poll loop.
         let start = std::time::Instant::now();
         loop {
-            let mut file = unsafe { fd_as_file(self.fd.as_raw_fd()) };
-            let res = file.read(buf);
-            std::mem::forget(file);
-            match res {
+            match self.file.read(buf) {
                 Ok(n) if n > 0 => return Ok(n),
                 _ => {
                     if start.elapsed() >= timeout {
@@ -51,14 +48,16 @@ impl SerialTransport for FdTransport {
     }
 
     fn set_baud_rate(&mut self, _baud: u32) -> Result<()> {
-        // A PTY has no real baud rate; the negotiation logic still drives this.
         Ok(())
     }
 }
 
-unsafe fn fd_as_file(raw: std::os::fd::RawFd) -> std::fs::File {
-    use std::os::fd::FromRawFd;
-    unsafe { std::fs::File::from_raw_fd(raw) }
+fn make_nonblocking(fd: std::os::fd::BorrowedFd<'_>) {
+    let raw = fd.as_raw_fd();
+    let flags = nix::fcntl::fcntl(raw, nix::fcntl::FcntlArg::F_GETFL).unwrap();
+    let mut oflags = nix::fcntl::OFlag::from_bits_truncate(flags);
+    oflags.insert(nix::fcntl::OFlag::O_NONBLOCK);
+    nix::fcntl::fcntl(raw, nix::fcntl::FcntlArg::F_SETFL(oflags)).unwrap();
 }
 
 #[test]
@@ -67,30 +66,26 @@ fn connect_negotiates_over_real_pty() {
     let master: OwnedFd = pty.master;
     let slave: OwnedFd = pty.slave;
 
-    // Put the line discipline in raw mode on both ends: a PTY defaults to
-    // canonical mode with echo, which would mangle/echo our binary CH9329
-    // frames (CR/LF translation, etc.).
+    // Raw mode on both ends: a PTY defaults to canonical mode with echo, which
+    // would mangle/echo our binary CH9329 frames (CR/LF translation, etc.).
     for fd in [master.as_fd(), slave.as_fd()] {
         let mut t = nix::sys::termios::tcgetattr(fd).unwrap();
         nix::sys::termios::cfmakeraw(&mut t);
         nix::sys::termios::tcsetattr(fd, nix::sys::termios::SetArg::TCSANOW, &t).unwrap();
     }
-
-    // Make both ends non-blocking so neither the negotiation read nor the
-    // device thread can block forever (the device thread must be able to see
-    // the stop signal between polls).
-    for fd in [master.as_raw_fd(), slave.as_raw_fd()] {
-        let flags = nix::fcntl::fcntl(fd, nix::fcntl::FcntlArg::F_GETFL).unwrap();
-        let mut oflags = nix::fcntl::OFlag::from_bits_truncate(flags);
-        oflags.insert(nix::fcntl::OFlag::O_NONBLOCK);
-        nix::fcntl::fcntl(fd, nix::fcntl::FcntlArg::F_SETFL(oflags)).unwrap();
-    }
+    // Non-blocking on both ends so neither side can block forever (the device
+    // thread must be able to observe the stop signal between polls).
+    make_nonblocking(master.as_fd());
+    make_nonblocking(slave.as_fd());
 
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
 
+    // Move ownership of each fd into a single `File` owner per side.
+    let mut device_file = std::fs::File::from(slave);
+    let master_file = std::fs::File::from(master);
+
     // "Device" thread: read the slave, answer GET_INFO with a valid response.
     let device = thread::spawn(move || {
-        let mut file = unsafe { fd_as_file(slave.as_raw_fd()) };
         let get_info = ch9329::get_info();
         let mut acc: Vec<u8> = Vec::new();
         let mut buf = [0u8; 64];
@@ -98,7 +93,7 @@ fn connect_negotiates_over_real_pty() {
             if stop_rx.try_recv().is_ok() {
                 break;
             }
-            match file.read(&mut buf) {
+            match device_file.read(&mut buf) {
                 Ok(n) if n > 0 => {
                     acc.extend_from_slice(&buf[..n]);
                     if acc
@@ -106,19 +101,16 @@ fn connect_negotiates_over_real_pty() {
                         .any(|w| w == get_info.as_slice())
                     {
                         let resp = ch9329::frame(0x81, &[0x01]);
-                        file.write_all(&resp).unwrap();
+                        device_file.write_all(&resp).unwrap();
                         acc.clear();
                     }
                 }
                 _ => thread::sleep(Duration::from_millis(2)),
             }
         }
-        std::mem::forget(file);
-        // keep slave open until thread end
-        drop(slave);
     });
 
-    let mut transport = FdTransport { fd: master };
+    let mut transport = FileTransport { file: master_file };
     let conn = connect_with_fallback(&mut transport, Duration::from_millis(500)).unwrap();
 
     assert_eq!(conn.baud, BAUD_PRIMARY);

@@ -72,26 +72,39 @@ fn decode_yuyv(frame: &Frame) -> Result<RgbaImage> {
             "yuyv: invalid dimensions {width}x{height} (width must be non-zero and even)"
         )));
     }
+    let packed_row = width as usize * 2;
     // Stride: explicit bytes_per_line, else the packed minimum (2 bytes/pixel).
+    // A declared stride smaller than the packed row is invalid (would slice
+    // past the row), so reject it rather than panic.
     let stride = if frame.bytes_per_line == 0 {
-        width as usize * 2
+        packed_row
     } else {
-        frame.bytes_per_line as usize
+        let s = frame.bytes_per_line as usize;
+        if s < packed_row {
+            return Err(Error::Decode(format!(
+                "yuyv: bytes_per_line {s} < packed row {packed_row}"
+            )));
+        }
+        s
     };
-    let needed = stride * height as usize;
+    // Checked arithmetic guards against overflow / absurd allocations from a
+    // malformed Frame fed by the capture device.
+    let needed = stride
+        .checked_mul(height as usize)
+        .ok_or_else(|| Error::Decode("yuyv: stride*height overflow".to_string()))?;
     if frame.data.len() < needed {
         return Err(Error::Decode(format!(
             "yuyv: {} bytes < {needed} needed ({stride} stride x {height} rows)",
             frame.data.len()
         )));
     }
+    let out_len = RgbaImage::byte_len(width, height);
 
-    let coeffs = YuvCoeffs::for_space(frame.color_space);
-    let full_range = matches!(frame.color_range, ColorRange::Full);
-    let mut pixels = vec![0u8; RgbaImage::byte_len(width, height)];
+    let coeffs = YuvCoeffs::for_format(frame.color_space, frame.color_range);
+    let mut pixels = vec![0u8; out_len];
 
     for row in 0..height as usize {
-        let line = &frame.data[row * stride..row * stride + width as usize * 2];
+        let line = &frame.data[row * stride..row * stride + packed_row];
         let out_row = &mut pixels[row * width as usize * 4..(row + 1) * width as usize * 4];
         // Each 4 bytes (Y0 U Y1 V) yields two RGBA pixels.
         for (i, chunk) in line.chunks_exact(4).enumerate() {
@@ -100,8 +113,8 @@ fn decode_yuyv(frame: &Frame) -> Result<RgbaImage> {
             let y1 = chunk[2];
             let v = chunk[3];
             let p = i * 8;
-            yuv_to_rgba(y0, u, v, full_range, coeffs, &mut out_row[p..p + 4]);
-            yuv_to_rgba(y1, u, v, full_range, coeffs, &mut out_row[p + 4..p + 8]);
+            yuv_to_rgba(y0, u, v, coeffs, &mut out_row[p..p + 4]);
+            yuv_to_rgba(y1, u, v, coeffs, &mut out_row[p + 4..p + 8]);
         }
     }
 
@@ -112,9 +125,14 @@ fn decode_yuyv(frame: &Frame) -> Result<RgbaImage> {
     })
 }
 
-/// BT.601 / BT.709 chroma coefficients (fixed-point 16.16).
+/// YUV→RGB conversion constants (fixed-point 16.16), specific to the color
+/// space **and** quantization range. Limited range applies a luma offset of 16
+/// and a 1.164 luma gain with larger chroma gains; full range is 1:1 luma with
+/// JFIF-style chroma gains.
 #[derive(Clone, Copy)]
 struct YuvCoeffs {
+    luma_offset: i32,
+    luma_scale: i32,
     r_v: i32,
     g_u: i32,
     g_v: i32,
@@ -122,33 +140,52 @@ struct YuvCoeffs {
 }
 
 impl YuvCoeffs {
-    fn for_space(space: ColorSpace) -> YuvCoeffs {
-        match space {
-            ColorSpace::Bt709 => YuvCoeffs {
+    fn for_format(space: ColorSpace, range: ColorRange) -> YuvCoeffs {
+        let full = matches!(range, ColorRange::Full);
+        match (space, full) {
+            // Full-range (JFIF) BT.709.
+            (ColorSpace::Bt709, true) => YuvCoeffs {
+                luma_offset: 0,
+                luma_scale: 65_536,
                 r_v: 103_206,
                 g_u: -12_276,
                 g_v: -30_679,
                 b_u: 121_609,
             },
-            // BT.601 (and Unknown defaults to 601, the SD/webcam norm).
-            ColorSpace::Bt601 | ColorSpace::Unknown => YuvCoeffs {
+            // Limited-range BT.709.
+            (ColorSpace::Bt709, false) => YuvCoeffs {
+                luma_offset: 16,
+                luma_scale: 76_309,
+                r_v: 117_506,
+                g_u: -13_959,
+                g_v: -34_938,
+                b_u: 138_412,
+            },
+            // Full-range (JFIF) BT.601.
+            (ColorSpace::Bt601 | ColorSpace::Unknown, true) => YuvCoeffs {
+                luma_offset: 0,
+                luma_scale: 65_536,
                 r_v: 91_881,
                 g_u: -22_554,
                 g_v: -46_802,
-                b_u: 116_129,
+                b_u: 116_130,
+            },
+            // Limited-range BT.601 (the SD/webcam norm; Unknown defaults here).
+            (ColorSpace::Bt601 | ColorSpace::Unknown, false) => YuvCoeffs {
+                luma_offset: 16,
+                luma_scale: 76_309,
+                r_v: 104_597,
+                g_u: -25_690,
+                g_v: -53_294,
+                b_u: 132_201,
             },
         }
     }
 }
 
 #[inline]
-fn yuv_to_rgba(y: u8, u: u8, v: u8, full_range: bool, c: YuvCoeffs, out: &mut [u8]) {
-    // Luma: limited range maps 16..235 to 0..255; full range is 1:1.
-    let yf: i32 = if full_range {
-        i32::from(y) << 16
-    } else {
-        (i32::from(y) - 16) * 76_309 // 255/219 in 16.16
-    };
+fn yuv_to_rgba(y: u8, u: u8, v: u8, c: YuvCoeffs, out: &mut [u8]) {
+    let yf = (i32::from(y) - c.luma_offset) * c.luma_scale;
     let uf = i32::from(u) - 128;
     let vf = i32::from(v) - 128;
 
@@ -214,6 +251,40 @@ mod tests {
     fn yuyv_rejects_short_buffer() {
         let frame = yuyv_frame(4, 1, vec![16, 128, 16, 128]); // needs 16 bytes
         assert!(decode_frame(&frame).is_err());
+    }
+
+    #[test]
+    fn yuyv_rejects_stride_smaller_than_packed_row() {
+        // width=4 needs a packed row of 8 bytes; a declared stride of 4 is
+        // invalid and must error, not panic.
+        let mut frame = yuyv_frame(4, 1, vec![0u8; 8]);
+        frame.bytes_per_line = 4;
+        assert!(decode_frame(&frame).is_err());
+    }
+
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn yuyv_decode_never_panics(
+            width in 0u32..512,
+            height in 0u32..512,
+            stride in 0u32..2048,
+            len in 0usize..4096,
+        ) {
+            let frame = Frame {
+                format: PixelFormat::Yuyv,
+                width,
+                height,
+                bytes_per_line: stride,
+                color_range: ColorRange::Limited,
+                color_space: ColorSpace::Bt601,
+                timestamp: Duration::ZERO,
+                data: vec![0x80; len],
+            };
+            // Must return Ok or Err, never panic.
+            let _ = decode_frame(&frame);
+        }
     }
 
     #[test]

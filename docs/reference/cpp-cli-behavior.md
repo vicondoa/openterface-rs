@@ -351,8 +351,9 @@ events into those reports, and openterface-rs must reproduce this translation:
   modifier byte (Ctrl `0x01`, Shift `0x02`, Alt `0x04`, Meta `0x08`)
   (`src/gui_input.cpp:791-796`).
 
-W2.2 implements the scancode→HID table and the modifier-bit conversion as the
-"physical-key forwarding" path (separate from the `sendText` path).
+- **Backslash (KEY_BACKSLASH, evdev 43)** maps to HID `0x32` (Non-US #/~), not
+  the "standard" `0x31`, because the C++ table does so (`src/gui_input.cpp:89`).
+  openterface-rs matches the C++ table for parity.
 
 ### Absolute mouse report
 

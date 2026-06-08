@@ -86,7 +86,7 @@ pub fn evdev_to_hid(code: u16) -> Option<HidUsage> {
         40 => 0x34,  // '
         41 => 0x35,  // `
         42 => 0xE1,  // LeftShift
-        43 => 0x31,  // backslash
+        43 => 0x32,  // backslash (C++ table maps KEY_BACKSLASH to Non-US 0x32)
         44 => 0x1D,  // z
         45 => 0x1B,  // x
         46 => 0x06,  // c
@@ -127,6 +127,7 @@ pub fn evdev_to_hid(code: u16) -> Option<HidUsage> {
         81 => 0x5B,  // KP 3
         82 => 0x62,  // KP 0
         83 => 0x63,  // KP .
+        86 => 0x64,  // KEY_102ND: ISO extra key (Non-US backslash and |)
         87 => 0x44,  // F11
         88 => 0x45,  // F12
         96 => 0x58,  // KP Enter
@@ -235,6 +236,8 @@ mod tests {
         assert_eq!(evdev_to_hid(103), Some(HidUsage(0x52))); // Up
         assert_eq!(evdev_to_hid(111), Some(HidUsage(0x4C))); // Delete
         assert_eq!(evdev_to_hid(29), Some(HidUsage(0xE0))); // LeftCtrl
+        assert_eq!(evdev_to_hid(43), Some(HidUsage(0x32))); // backslash (C++ parity)
+        assert_eq!(evdev_to_hid(86), Some(HidUsage(0x64))); // KEY_102ND (ISO)
         assert_eq!(evdev_to_hid(0xFFFF), None);
     }
 

@@ -43,15 +43,29 @@ pub trait DeviceScanner: Send {
 
 /// Parses `(vendor, product)` from a USB `modalias` string such as
 /// `usb:v1A86p7523d...`. Returns `None` if the pattern is absent.
+///
+/// Parses on bytes (not `&str` indices) so arbitrary sysfs contents with
+/// multibyte UTF-8 cannot cause a non-char-boundary slice panic.
 #[must_use]
 pub fn parse_usb_modalias(modalias: &str) -> Option<(u16, u16)> {
-    let rest = modalias.strip_prefix("usb:v")?;
-    if rest.len() < 9 || rest.as_bytes()[4] != b'p' {
+    let bytes = modalias.as_bytes();
+    let prefix = b"usb:v";
+    if !bytes.starts_with(prefix) {
         return None;
     }
-    let vid = u16::from_str_radix(&rest[0..4], 16).ok()?;
-    let pid = u16::from_str_radix(&rest[5..9], 16).ok()?;
+    let rest = &bytes[prefix.len()..];
+    if rest.len() < 9 || rest[4] != b'p' {
+        return None;
+    }
+    let vid = hex4(&rest[0..4])?;
+    let pid = hex4(&rest[5..9])?;
     Some((vid, pid))
+}
+
+/// Parses exactly four ASCII hex bytes into a `u16`.
+fn hex4(bytes: &[u8]) -> Option<u16> {
+    let s = std::str::from_utf8(bytes).ok()?;
+    u16::from_str_radix(s, 16).ok()
 }
 
 /// A `DeviceScanner` backed by the Linux `/sys` filesystem.
@@ -192,6 +206,9 @@ mod tests {
         );
         assert_eq!(parse_usb_modalias("pci:v00008086d"), None);
         assert_eq!(parse_usb_modalias("usb:v1A86"), None);
+        // Must not panic on multibyte UTF-8 in the id positions.
+        assert_eq!(parse_usb_modalias("usb:v1A86p75€3"), None);
+        assert_eq!(parse_usb_modalias("usb:v€€€€p7523d"), None);
     }
 
     fn write(path: &Path, contents: &str) {

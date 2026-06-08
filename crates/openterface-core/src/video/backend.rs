@@ -8,10 +8,11 @@
 use std::time::Duration;
 
 use v4l::buffer::Type;
+use v4l::format::{Colorspace, Quantization};
 use v4l::io::mmap::Stream;
 use v4l::io::traits::CaptureStream;
 use v4l::video::Capture;
-use v4l::{Device, FourCC};
+use v4l::{Device, Format, FourCC};
 
 use crate::video::{
     CaptureConfig, ColorRange, ColorSpace, FormatDesc, Frame, PixelFormat, VideoSource,
@@ -38,6 +39,31 @@ fn pixel_format(repr: &[u8; 4]) -> Option<PixelFormat> {
     }
 }
 
+/// Maps a V4L2 colorspace to our conversion matrix selector.
+fn map_colorspace(cs: Colorspace) -> ColorSpace {
+    match cs {
+        Colorspace::Rec709 => ColorSpace::Bt709,
+        Colorspace::SMPTE170M | Colorspace::NTSC | Colorspace::SMPTE240M => ColorSpace::Bt601,
+        // JPEG/sRGB carry full-range BT.601 primaries in practice.
+        Colorspace::JPEG | Colorspace::SRGB => ColorSpace::Bt601,
+        _ => ColorSpace::Unknown,
+    }
+}
+
+/// Maps a V4L2 quantization (and format) to our range selector. `Default`
+/// resolves per the usual conventions: encoded/JPEG is full range, packed YUYV
+/// is limited range.
+fn map_range(q: Quantization, format: PixelFormat) -> ColorRange {
+    match q {
+        Quantization::FullRange => ColorRange::Full,
+        Quantization::LimitedRange => ColorRange::Limited,
+        Quantization::Default => match format {
+            PixelFormat::Mjpeg => ColorRange::Full,
+            PixelFormat::Yuyv => ColorRange::Limited,
+        },
+    }
+}
+
 /// A [`VideoSource`] backed by a real V4L2 device (e.g. `/dev/video2`).
 ///
 /// Field order matters: `stream` is declared before `device` so it is dropped
@@ -48,6 +74,8 @@ pub struct V4l2Source {
     stream: Option<Stream<'static>>,
     device: Box<Device>,
     active: Option<CaptureConfig>,
+    /// The exact V4L2 format the driver applied (stride/colorspace/quantization).
+    applied: Option<Format>,
 }
 
 impl V4l2Source {
@@ -59,6 +87,7 @@ impl V4l2Source {
             stream: None,
             device: Box::new(device),
             active: None,
+            applied: None,
         })
     }
 }
@@ -80,8 +109,6 @@ impl VideoSource for V4l2Source {
                         format,
                         width: discrete.width,
                         height: discrete.height,
-                        // Frame-rate enumeration is device-dependent; the
-                        // negotiation only needs resolution+format here.
                         frame_rates: Vec::new(),
                     });
                 }
@@ -110,6 +137,7 @@ impl VideoSource for V4l2Source {
             fps: config.fps,
             format,
         });
+        self.applied = Some(applied);
         Ok(())
     }
 
@@ -135,33 +163,47 @@ impl VideoSource for V4l2Source {
         Ok(())
     }
 
-    fn next_frame(&mut self, _timeout: Duration) -> Result<Frame> {
+    fn next_frame(&mut self, timeout: Duration) -> Result<Frame> {
+        let applied = self
+            .applied
+            .ok_or_else(|| Error::Video("no active config".to_string()))?;
+        let config = self
+            .active
+            .ok_or_else(|| Error::Video("no active config".to_string()))?;
         let stream = self
             .stream
             .as_mut()
             .ok_or_else(|| Error::Video("capture not started".to_string()))?;
-        let (buf, _meta) = stream
-            .next()
-            .map_err(|e| Error::Video(format!("dequeue: {e}")))?;
-        let config = self
-            .active
-            .ok_or_else(|| Error::Video("no active config".to_string()))?;
+        // Honor the contract: block at most `timeout` for the next frame.
+        stream.set_timeout(timeout);
+        let (buf, meta) = match stream.next() {
+            Ok(pair) => pair,
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                ) =>
+            {
+                return Err(Error::Timeout)
+            }
+            Err(e) => return Err(Error::Video(format!("dequeue: {e}"))),
+        };
+        // Only the captured bytes are valid; the mmap buffer may be larger.
+        let used = (meta.bytesused as usize).min(buf.len());
+        let data = buf[..used].to_vec();
+        let bytes_per_line = match config.format {
+            PixelFormat::Yuyv => applied.stride,
+            PixelFormat::Mjpeg => 0,
+        };
         Ok(Frame {
             format: config.format,
             width: config.width,
             height: config.height,
-            bytes_per_line: match config.format {
-                PixelFormat::Yuyv => config.width * 2,
-                PixelFormat::Mjpeg => 0,
-            },
-            color_range: ColorRange::Limited,
-            color_space: if config.height >= 720 {
-                ColorSpace::Bt709
-            } else {
-                ColorSpace::Bt601
-            },
+            bytes_per_line,
+            color_range: map_range(applied.quantization, config.format),
+            color_space: map_colorspace(applied.colorspace),
             timestamp: Duration::ZERO,
-            data: buf.to_vec(),
+            data,
         })
     }
 }
