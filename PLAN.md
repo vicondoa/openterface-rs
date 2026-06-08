@@ -17,7 +17,8 @@
    `cargo clippy --all-targets -- -D warnings`, `cargo test` (and `nextest`
    once wired).
 
-**Current status:** `W3 — Integration` — pacing + session + vertical slice landed
+**Current status:** `W3 — Integration` **complete** (panel 5/5). Next: `W4 —
+Frontends` (CLI binary ∥ winit/wgpu display).
 (71 hardware-free tests). W3 work-review panel gate in progress.
 Integration` (pacing scheduler, session orchestration, vertical slice).
 HID, decode, serial, video, discovery); 56 hardware-free tests + PTY test. W2
@@ -120,7 +121,7 @@ CI, license/docs stubs, and the public repo created + protected.*
 - [x] `W3.1` pacing scheduler (queue/coalesce/30Hz/release-priority, fake-clock; 11 tests).
 - [x] `W3.2` session orchestration + shutdown/cancellation model (threads+channels).
 - [x] `W3.3` end-to-end vertical slice (sim frame->decode + input->mock serial bytes).
-- [ ] **W3 panel gate** (rust, protocol, input, test, security).
+- [x] **W3 panel gate** (rust, protocol, input, test, security) — unanimous 5/5 (W3fu3).
 
 ## W4 — Frontends (fan-out ×2)
 
@@ -148,7 +149,6 @@ CI, license/docs stubs, and the public repo created + protected.*
 ---
 
 ## Wave completion log
-
 _Append a one-line entry when a wave closes (date, wave, panel result, notes)._
 
 - **2026-06-07 — W0 Foundation — CLOSED.** Panel 5/5 (rust, test, security, build-ci, docs);
@@ -167,4 +167,10 @@ _Append a one-line entry when a wave closes (date, wave, panel result, notes)._
   range-correct colorimetry), serial baud-fallback + serialport backend + PTY test, fault-injecting
   video sim + v4l backend (timeout recovery), pure-sysfs discovery. 59 hardware-free tests. Panel
   caught: YUYV decode panics, wrong limited-range coefficients, v4l timeout wedge + panic, HID
-  parity (evdev 43→0x32, +KEY_102ND).
+  parity (evdev 43→0x32, +KEY_102ND). PR #3.
+- **2026-06-07 — W3 Integration — CLOSED.** Panel 5/5 (protocol, security ✓ round 1; rust, test
+  ✓ after `W3fu1`; input ✓ after `W3fu3`), reviewers on GPT-5.5. Pacing scheduler (30Hz coalesce
+  + release-priority, fake-clock), session orchestration (threads + channel-disconnect shutdown,
+  drains releases), end-to-end vertical slice. 75 hardware-free tests. Panel caught real
+  input-ordering bugs: releases not jumping the batch at the session boundary, releases lost on
+  shutdown, abs/rel position desync, and a flush-with-wrong-button-mask drag bug.
