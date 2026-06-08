@@ -104,6 +104,11 @@ pub struct FrameThrottle {
     /// optimistic; cleared if a decoded-pixel compare ever shows raw-different
     /// frames decoding to the same image (non-deterministic MJPEG encoder).
     raw_reliable: bool,
+    /// Whether the most recent decode was of a frame whose raw bytes differed
+    /// from the previously seen frame (vs a wake-forced decode of an identical
+    /// frame). Only a raw-*changed* decode that yields identical pixels signals
+    /// non-determinism.
+    last_decode_raw_changed: bool,
 }
 
 impl FrameThrottle {
@@ -120,6 +125,7 @@ impl FrameThrottle {
             last_refresh: None,
             have_displayed: false,
             raw_reliable: true,
+            last_decode_raw_changed: false,
         }
     }
 
@@ -138,24 +144,28 @@ impl FrameThrottle {
     pub fn should_decode(&mut self, now: Duration, frame: &[u8]) -> bool {
         if !self.config.enabled {
             self.last_decode = Some(now);
+            self.last_decode_raw_changed = true;
             return true;
         }
+        let hash = hash_bytes(frame);
+        let raw_changed = self.last_raw_hash != Some(hash);
         // Within the input-wake window: always full rate.
         if self.within_wake(now) {
-            self.last_raw_hash = Some(hash_bytes(frame));
+            self.last_raw_hash = Some(hash);
             self.last_decode = Some(now);
+            self.last_decode_raw_changed = raw_changed;
             return true;
         }
         if self.raw_reliable {
             // The raw stream reliably reflects change: byte-identical frames are
             // skipped entirely once something has been displayed; any change is
             // decoded immediately.
-            let hash = hash_bytes(frame);
-            if self.have_displayed && self.last_raw_hash == Some(hash) {
+            if self.have_displayed && !raw_changed {
                 return false;
             }
             self.last_raw_hash = Some(hash);
             self.last_decode = Some(now);
+            self.last_decode_raw_changed = raw_changed;
             return true;
         }
         // Non-deterministic encoder (raw bytes differ even on a static screen):
@@ -166,7 +176,9 @@ impl FrameThrottle {
             Some(last) => now.saturating_sub(last) >= self.config.idle_decode,
         };
         if due {
+            self.last_raw_hash = Some(hash);
             self.last_decode = Some(now);
+            self.last_decode_raw_changed = raw_changed;
         }
         due
     }
@@ -176,10 +188,13 @@ impl FrameThrottle {
     pub fn should_upload(&mut self, now: Duration, decoded: &[u8]) -> bool {
         let hash = hash_bytes(decoded);
         if self.last_decoded_hash == Some(hash) {
-            // We decoded (because raw differed or a gate elapsed) yet the pixels
-            // are identical → the raw stream is non-deterministic. Stop trusting
-            // raw dedup so future static frames are idle-gated, not fast-skipped.
-            self.raw_reliable = false;
+            // Identical pixels. Only treat this as evidence of a
+            // non-deterministic encoder if the raw bytes had actually changed
+            // (a wake-forced re-decode of a byte-identical frame must not poison
+            // the reliable raw-dedup fast path).
+            if self.last_decode_raw_changed {
+                self.raw_reliable = false;
+            }
             return false;
         }
         self.last_decoded_hash = Some(hash);
@@ -276,6 +291,22 @@ mod tests {
         assert!(t.should_decode(ms(base + 240), b"static"));
         // After the wake window, identical static frames are skipped again.
         assert!(!t.should_decode(ms(base + 300), b"static"));
+    }
+
+    #[test]
+    fn wake_decode_of_identical_frame_does_not_poison_dedup() {
+        // A deterministic static stream that gets input during the static period
+        // must NOT be permanently downgraded to idle-gated decoding.
+        let mut t = FrameThrottle::new(cfg());
+        assert!(t.should_decode(ms(0), b"static"));
+        assert!(t.should_upload(ms(0), b"pixels"));
+        // Input arrives; wake forces a decode of the byte-identical frame.
+        t.note_input(ms(100));
+        assert!(t.should_decode(ms(110), b"static"));
+        assert!(!t.should_upload(ms(110), b"pixels")); // identical pixels, skip
+                                                       // Raw dedup must still be trusted: after the wake window, identical
+                                                       // frames skip decode entirely (not idle-gated).
+        assert!(!t.should_decode(ms(110 + 300), b"static"));
     }
 
     #[test]
