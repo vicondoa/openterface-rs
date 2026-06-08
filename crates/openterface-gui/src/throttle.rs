@@ -7,8 +7,8 @@
 //! 1. **Raw dedup** — byte-identical encoded frames skip decode *and* upload.
 //! 2. **Non-deterministic MJPEG** — after a decode, identical *decoded* pixels
 //!    skip the GPU upload.
-//! 3. **Idle gate** — after `idle_after_frames` static frames, cap decode
-//!    attempts to one per `idle_decode`.
+//! 3. **Idle gate** — for non-deterministic MJPEG streams, cap decode attempts
+//!    to one per `idle_decode`.
 //! 4. **Input wake** — any input keeps full-rate decode for `input_wake`.
 //! 5. **Watchdog** — re-present the cached frame at least every `watchdog`
 //!    (anti-freeze), no decode required.
@@ -38,8 +38,6 @@ pub struct ThrottleConfig {
     pub input_wake: Duration,
     /// Forced cached-frame refresh interval (anti-freeze).
     pub watchdog: Duration,
-    /// Consecutive static frames before declaring idle.
-    pub idle_after_frames: u32,
 }
 
 impl Default for ThrottleConfig {
@@ -49,7 +47,6 @@ impl Default for ThrottleConfig {
             idle_decode: Duration::from_millis(100),
             input_wake: Duration::from_millis(250),
             watchdog: Duration::from_millis(1000),
-            idle_after_frames: 15,
         }
     }
 }
@@ -97,7 +94,6 @@ pub struct FrameThrottle {
     config: ThrottleConfig,
     last_raw_hash: Option<u64>,
     last_decoded_hash: Option<u64>,
-    static_count: u32,
     last_input: Option<Duration>,
     last_decode: Option<Duration>,
     last_upload: Option<Duration>,
@@ -118,7 +114,6 @@ impl FrameThrottle {
             config,
             last_raw_hash: None,
             last_decoded_hash: None,
-            static_count: 0,
             last_input: None,
             last_upload: None,
             last_decode: None,
@@ -145,40 +140,35 @@ impl FrameThrottle {
             self.last_decode = Some(now);
             return true;
         }
-        // Within the input-wake window: always full rate. (We keep static_count
-        // so idle-gating resumes immediately once the wake window closes.)
+        // Within the input-wake window: always full rate.
         if self.within_wake(now) {
             self.last_raw_hash = Some(hash_bytes(frame));
             self.last_decode = Some(now);
             return true;
         }
-        let hash = hash_bytes(frame);
-        if self.last_raw_hash == Some(hash) {
-            // Byte-identical raw frame. Once we have displayed a frame and the
-            // raw stream is deterministic, skip decode AND upload entirely.
-            if self.have_displayed && self.raw_reliable {
+        if self.raw_reliable {
+            // The raw stream reliably reflects change: byte-identical frames are
+            // skipped entirely once something has been displayed; any change is
+            // decoded immediately.
+            let hash = hash_bytes(frame);
+            if self.have_displayed && self.last_raw_hash == Some(hash) {
                 return false;
             }
-            // Non-deterministic encoder: gate decode to the idle interval.
-            self.static_count = self.static_count.saturating_add(1);
-            if self.static_count < self.config.idle_after_frames {
-                self.last_decode = Some(now);
-                return true;
-            }
-            let due = match self.last_decode {
-                None => true,
-                Some(last) => now.saturating_sub(last) >= self.config.idle_decode,
-            };
-            if due {
-                self.last_decode = Some(now);
-            }
-            return due;
+            self.last_raw_hash = Some(hash);
+            self.last_decode = Some(now);
+            return true;
         }
-        // Raw bytes changed: a fresh frame, decode it.
-        self.last_raw_hash = Some(hash);
-        self.static_count = 0;
-        self.last_decode = Some(now);
-        true
+        // Non-deterministic encoder (raw bytes differ even on a static screen):
+        // raw dedup is useless, so idle-gate decode to one per `idle_decode` and
+        // rely on the decoded-pixel compare in `should_upload` to drop uploads.
+        let due = match self.last_decode {
+            None => true,
+            Some(last) => now.saturating_sub(last) >= self.config.idle_decode,
+        };
+        if due {
+            self.last_decode = Some(now);
+        }
+        due
     }
 
     /// After a decode, decides whether the decoded pixels should be uploaded at
@@ -258,32 +248,33 @@ mod tests {
     #[test]
     fn nondeterministic_stream_falls_back_to_idle_gate() {
         let mut t = FrameThrottle::new(cfg());
-        // raw "a" → pixels P.
+        // raw "a" → pixels P (displayed).
         assert!(t.should_decode(ms(0), b"raw-a"));
         assert!(t.should_upload(ms(0), b"P"));
         // raw "b" (different bytes) → same pixels P: marks the stream
         // non-deterministic and skips the upload.
         assert!(t.should_decode(ms(33), b"raw-b"));
         assert!(!t.should_upload(ms(33), b"P"));
-        // Now byte-identical raw frames are idle-gated (decoded) rather than
-        // fast-skipped, since raw dedup is no longer trusted.
-        for i in 1..15 {
-            assert!(t.should_decode(ms(33 + i * 33), b"raw-b"));
-        }
+        // Now raw dedup is distrusted: even raw-different static frames are
+        // idle-gated to one decode per idle_decode (100ms), not full-rate.
+        assert!(!t.should_decode(ms(66), b"raw-c")); // <100ms since last decode
+        assert!(!t.should_decode(ms(99), b"raw-d"));
+        assert!(t.should_decode(ms(133), b"raw-e")); // ≥100ms → decode
     }
 
     #[test]
     fn input_wake_forces_full_rate() {
         let mut t = FrameThrottle::new(cfg());
-        for i in 0..20 {
-            t.should_decode(ms(i * 33), b"static"); // drive into idle
-        }
-        let base = 20 * 33;
+        // Display a frame; identical static frames are then skipped.
+        assert!(t.should_decode(ms(0), b"static"));
+        assert!(t.should_upload(ms(0), b"pixels"));
+        assert!(!t.should_decode(ms(33), b"static")); // skipped (deterministic)
+        let base = 1000;
         t.note_input(ms(base));
         // Within the 250ms wake window, even static frames decode.
         assert!(t.should_decode(ms(base + 10), b"static"));
         assert!(t.should_decode(ms(base + 240), b"static"));
-        // After the wake window, gating resumes.
+        // After the wake window, identical static frames are skipped again.
         assert!(!t.should_decode(ms(base + 300), b"static"));
     }
 

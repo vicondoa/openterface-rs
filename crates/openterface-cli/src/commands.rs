@@ -229,7 +229,18 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
         Box::new(NullSerial)
     } else if let Some(sp) = &serial_path {
         match SerialPortTransport::open(&sp.to_string_lossy()) {
-            Ok(t) => Box::new(t),
+            Ok(mut t) => {
+                // Negotiate baud (115200 → 9600 fallback) before forwarding, so
+                // devices that only respond at the fallback rate still work.
+                use openterface_core::serial::connect_with_fallback;
+                if let Err(e) = connect_with_fallback(&mut t, std::time::Duration::from_millis(500))
+                {
+                    eprintln!("CH9329 negotiation failed ({e}); input forwarding disabled.");
+                    Box::new(NullSerial)
+                } else {
+                    Box::new(t)
+                }
+            }
             Err(e) => {
                 eprintln!("Serial open failed ({e}); continuing without input forwarding.");
                 Box::new(NullSerial)

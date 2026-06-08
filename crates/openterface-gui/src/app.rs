@@ -38,7 +38,6 @@ pub struct RunConfig {
 /// Runs the display loop until the window is closed. Wayland-only.
 pub fn run(config: RunConfig) -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoop::new()?;
-    event_loop.set_control_flow(ControlFlow::Poll);
     let mut app = App::new(config);
     event_loop.run_app(&mut app)?;
     Ok(())
@@ -191,7 +190,13 @@ impl ApplicationHandler for App {
 
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
-            WindowEvent::CloseRequested => el.exit(),
+            WindowEvent::CloseRequested => {
+                // Release everything before tearing down the session so the
+                // target never sees input stuck down after the window closes.
+                self.mod_byte = Modifiers::NONE;
+                self.release_all();
+                el.exit();
+            }
             WindowEvent::Resized(size) => {
                 // Resize the GPU surface here (render thread), never on the input
                 // path, so input dispatch is never blocked.
@@ -208,6 +213,7 @@ impl ApplicationHandler for App {
                 self.release_all();
             }
             WindowEvent::CursorLeft { .. } => {
+                self.mod_byte = Modifiers::NONE;
                 self.release_all();
             }
             WindowEvent::KeyboardInput { event, .. } => {
@@ -280,8 +286,14 @@ impl ApplicationHandler for App {
         }
     }
 
-    fn about_to_wait(&mut self, _el: &ActiveEventLoop) {
+    fn about_to_wait(&mut self, el: &ActiveEventLoop) {
         self.pump_frames();
+        // Poll the capture channel at ~250 Hz rather than spinning the event
+        // loop continuously (a frame at 30 fps arrives every ~33 ms; 4 ms keeps
+        // latency low without burning a core under ControlFlow::Poll).
+        el.set_control_flow(ControlFlow::WaitUntil(
+            Instant::now() + std::time::Duration::from_millis(4),
+        ));
     }
 }
 
