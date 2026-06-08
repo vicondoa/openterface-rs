@@ -17,7 +17,8 @@
    `cargo clippy --all-targets -- -D warnings`, `cargo test` (and `nextest`
    once wired).
 
-**Current status:** `W2 — Core fan-out` **complete** (panel 6/6). Next: `W3 —
+**Current status:** `W3 — Integration` — pacing + session + vertical slice landed
+(71 hardware-free tests). W3 work-review panel gate in progress.
 Integration` (pacing scheduler, session orchestration, vertical slice).
 HID, decode, serial, video, discovery); 56 hardware-free tests + PTY test. W2
 work-review panel gate in progress.
@@ -116,9 +117,9 @@ CI, license/docs stubs, and the public repo created + protected.*
 
 ## W3 — Integration (×~2)
 
-- [ ] `W3.1` pacing scheduler (queue/backpressure/coalescing, fake-clock, 30 Hz, release-jump).
-- [ ] `W3.2` session orchestration + shutdown/cancellation model + abs/rel + special keys.
-- [ ] `W3.3` end-to-end vertical slice (sim frame→decode→texture→window; input→HID→mock serial).
+- [x] `W3.1` pacing scheduler (queue/coalesce/30Hz/release-priority, fake-clock; 11 tests).
+- [x] `W3.2` session orchestration + shutdown/cancellation model (threads+channels).
+- [x] `W3.3` end-to-end vertical slice (sim frame->decode + input->mock serial bytes).
 - [ ] **W3 panel gate** (rust, protocol, input, test, security).
 
 ## W4 — Frontends (fan-out ×2)
