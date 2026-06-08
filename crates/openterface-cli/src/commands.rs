@@ -101,13 +101,8 @@ pub(crate) fn reset(args: &ResetArgs, _verbose: bool) -> ExitCode {
     reset_impl(serial)
 }
 
-/// `connect` — start a KVM session. The live display lands in W4.2; this resolves
-/// and reports the target configuration (and handles `--dummy`).
+/// `connect` — start a KVM session and open the display.
 pub(crate) fn connect(args: &ConnectArgs, _verbose: bool) -> ExitCode {
-    if args.dummy {
-        println!("Starting in dummy mode (no device connection).");
-        return connect_impl(args);
-    }
     connect_impl(args)
 }
 
@@ -123,8 +118,9 @@ fn reset_impl(_serial: &Path) -> ExitCode {
 #[cfg(not(feature = "hardware"))]
 fn connect_impl(args: &ConnectArgs) -> ExitCode {
     if args.dummy {
-        // Dummy mode needs no hardware; the live window lands in W4.2.
-        println!("(dummy) display frontend is implemented in the GUI crate (W4.2).");
+        // Dummy mode needs no hardware; the live window lands with `hardware`.
+        println!("Starting in dummy mode (no device connection).");
+        println!("(dummy) the display window requires `--features hardware`.");
         return ExitCode::Success;
     }
     eprintln!(
@@ -169,35 +165,128 @@ fn reset_impl(serial: &Path) -> ExitCode {
 
 #[cfg(feature = "hardware")]
 fn connect_impl(args: &ConnectArgs) -> ExitCode {
-    // Device resolution + headless capability check. The live winit/wgpu window
-    // and input capture are wired in W4.2 (openterface-gui).
-    let scanner = SysfsScanner::new();
-    let devices = scanner.scan().unwrap_or_default();
+    use openterface_core::pacing::PacingConfig;
+    use openterface_core::serial::backend::SerialPortTransport;
+    use openterface_core::session::Session;
+    use openterface_core::video::{backend::V4l2Source, CaptureConfig, VideoSource};
+    use openterface_gui::{run, RunConfig};
+
+    let fullscreen = std::env::var("OPENTERFACE_FULLSCREEN").is_ok();
+
+    // Dummy mode: open the window with a test pattern, no devices.
+    if args.dummy {
+        println!("Starting in dummy mode (no device connection).");
+        let cfg = RunConfig {
+            session: None,
+            frames: None,
+            fullscreen,
+            title: "Openterface KVM (dummy)".to_string(),
+        };
+        return match run(cfg) {
+            Ok(()) => ExitCode::Success,
+            Err(e) => {
+                eprintln!("display error: {e}");
+                ExitCode::Failure
+            }
+        };
+    }
+
+    // Resolve devices (explicit flags or auto-detect).
+    let devices = SysfsScanner::new().scan().unwrap_or_default();
     let dev = devices.first();
-    let video = args
+    let video_path = args
         .video
         .clone()
         .or_else(|| dev.and_then(|d| d.video_path.clone()));
-    let serial = args
+    let serial_path = args
         .serial
         .clone()
         .or_else(|| dev.and_then(|d| d.serial_path.clone()));
 
-    if !args.no_video {
-        match &video {
-            Some(v) => println!("Video device: {}", v.display()),
-            None => {
-                eprintln!("No Openterface capture device found. Try: openterface-rs scan");
-                return ExitCode::Failure;
+    if args.no_video {
+        eprintln!("--no-video: a display session requires video; nothing to show.");
+        return ExitCode::Failure;
+    }
+    let Some(video_path) = video_path else {
+        eprintln!("No Openterface capture device found. Try: openterface-rs scan");
+        return ExitCode::Failure;
+    };
+
+    let mut video = match V4l2Source::open(&video_path.to_string_lossy()) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Failed to open video device {}: {e}", video_path.display());
+            return ExitCode::Failure;
+        }
+    };
+    if let Err(e) = video.configure(CaptureConfig::default()) {
+        eprintln!("Failed to configure capture: {e}");
+        return ExitCode::Failure;
+    }
+
+    // Serial is optional (input forwarding); without it we still show video.
+    let serial: Box<dyn openterface_core::serial::SerialTransport> = if args.no_serial {
+        Box::new(NullSerial)
+    } else if let Some(sp) = &serial_path {
+        match SerialPortTransport::open(&sp.to_string_lossy()) {
+            Ok(t) => Box::new(t),
+            Err(e) => {
+                eprintln!("Serial open failed ({e}); continuing without input forwarding.");
+                Box::new(NullSerial)
             }
         }
-    }
-    if !args.no_serial {
-        match &serial {
-            Some(s) => println!("Serial device: {}", s.display()),
-            None => eprintln!("No serial control device found (input forwarding disabled)."),
+    } else {
+        eprintln!("No serial control device found; input forwarding disabled.");
+        Box::new(NullSerial)
+    };
+
+    let (frame_tx, frame_rx) = std::sync::mpsc::sync_channel(4);
+    let session = match Session::start(
+        serial,
+        video,
+        CaptureConfig::default(),
+        PacingConfig::from_env(),
+        frame_tx,
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Failed to start session: {e}");
+            return ExitCode::Failure;
+        }
+    };
+
+    let cfg = RunConfig {
+        session: Some(session),
+        frames: Some(frame_rx),
+        fullscreen,
+        title: "Openterface KVM".to_string(),
+    };
+    match run(cfg) {
+        Ok(()) => ExitCode::Success,
+        Err(e) => {
+            eprintln!("display error: {e}");
+            ExitCode::Failure
         }
     }
-    println!("Connected. (Live display + input capture: openterface-gui, W4.2.)");
-    ExitCode::Success
+}
+
+/// A no-op serial transport used when input forwarding is disabled/unavailable.
+#[cfg(feature = "hardware")]
+struct NullSerial;
+
+#[cfg(feature = "hardware")]
+impl openterface_core::serial::SerialTransport for NullSerial {
+    fn write_all(&mut self, _bytes: &[u8]) -> openterface_core::Result<()> {
+        Ok(())
+    }
+    fn read(
+        &mut self,
+        _buf: &mut [u8],
+        _timeout: std::time::Duration,
+    ) -> openterface_core::Result<usize> {
+        Ok(0)
+    }
+    fn set_baud_rate(&mut self, _baud: u32) -> openterface_core::Result<()> {
+        Ok(())
+    }
 }

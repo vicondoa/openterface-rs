@@ -71,4 +71,5 @@ jobs:
         env:
           VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
           WGPU_BACKEND: vulkan
+          OPENTERFACE_REQUIRE_GPU: "1"
         run: cargo test -p openterface-gui --features gpu-tests --test headless_render -- --nocapture

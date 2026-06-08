@@ -101,6 +101,13 @@ pub struct FrameThrottle {
     last_input: Option<Duration>,
     last_decode: Option<Duration>,
     last_upload: Option<Duration>,
+    last_refresh: Option<Duration>,
+    /// Set once a frame has been decoded and displayed.
+    have_displayed: bool,
+    /// Whether byte-identical raw frames reliably mean identical pixels. Starts
+    /// optimistic; cleared if a decoded-pixel compare ever shows raw-different
+    /// frames decoding to the same image (non-deterministic MJPEG encoder).
+    raw_reliable: bool,
 }
 
 impl FrameThrottle {
@@ -115,12 +122,21 @@ impl FrameThrottle {
             last_input: None,
             last_upload: None,
             last_decode: None,
+            last_refresh: None,
+            have_displayed: false,
+            raw_reliable: true,
         }
     }
 
     /// Records input activity at `now` (opens the full-rate wake window).
     pub fn note_input(&mut self, now: Duration) {
         self.last_input = Some(now);
+    }
+
+    /// Records that the cached frame was re-presented at `now` (used to gate the
+    /// anti-freeze watchdog so it fires once per interval, not every loop).
+    pub fn note_refresh(&mut self, now: Duration) {
+        self.last_refresh = Some(now);
     }
 
     /// Decides whether the raw `frame` should be decoded at `now`.
@@ -138,8 +154,13 @@ impl FrameThrottle {
         }
         let hash = hash_bytes(frame);
         if self.last_raw_hash == Some(hash) {
+            // Byte-identical raw frame. Once we have displayed a frame and the
+            // raw stream is deterministic, skip decode AND upload entirely.
+            if self.have_displayed && self.raw_reliable {
+                return false;
+            }
+            // Non-deterministic encoder: gate decode to the idle interval.
             self.static_count = self.static_count.saturating_add(1);
-            // Below the idle threshold we keep decoding; once idle, gate it.
             if self.static_count < self.config.idle_after_frames {
                 self.last_decode = Some(now);
                 return true;
@@ -165,24 +186,34 @@ impl FrameThrottle {
     pub fn should_upload(&mut self, now: Duration, decoded: &[u8]) -> bool {
         let hash = hash_bytes(decoded);
         if self.last_decoded_hash == Some(hash) {
+            // We decoded (because raw differed or a gate elapsed) yet the pixels
+            // are identical → the raw stream is non-deterministic. Stop trusting
+            // raw dedup so future static frames are idle-gated, not fast-skipped.
+            self.raw_reliable = false;
             return false;
         }
         self.last_decoded_hash = Some(hash);
         self.last_upload = Some(now);
+        self.last_refresh = Some(now);
+        self.have_displayed = true;
         true
     }
 
     /// Whether the cached frame should be re-presented now (anti-freeze
-    /// watchdog) even though nothing changed.
+    /// watchdog) even though nothing changed. Gated by the last upload **or**
+    /// refresh so it fires at most once per `watchdog` interval.
     #[must_use]
     pub fn should_force_refresh(&self, now: Duration) -> bool {
-        if !self.config.enabled {
+        if !self.config.enabled || !self.have_displayed {
             return false;
         }
-        match self.last_upload {
-            None => false,
-            Some(last) => now.saturating_sub(last) >= self.config.watchdog,
-        }
+        let base = match (self.last_refresh, self.last_upload) {
+            (Some(r), Some(u)) => r.max(u),
+            (Some(r), None) => r,
+            (None, Some(u)) => u,
+            (None, None) => return false,
+        };
+        now.saturating_sub(base) >= self.config.watchdog
     }
 
     fn within_wake(&self, now: Duration) -> bool {
@@ -214,16 +245,31 @@ mod tests {
     }
 
     #[test]
-    fn static_frames_become_idle_and_gate_decode() {
+    fn static_frames_skip_decode_once_displayed() {
         let mut t = FrameThrottle::new(cfg());
-        // First 15 identical frames still decode (below idle threshold).
-        for i in 0..15 {
-            assert!(t.should_decode(ms(i * 33), b"static"));
+        // First frame: decode + upload (now "displayed").
+        assert!(t.should_decode(ms(0), b"static"));
+        assert!(t.should_upload(ms(0), b"pixels"));
+        // Byte-identical raw frames now skip decode entirely (deterministic).
+        assert!(!t.should_decode(ms(33), b"static"));
+        assert!(!t.should_decode(ms(66), b"static"));
+    }
+
+    #[test]
+    fn nondeterministic_stream_falls_back_to_idle_gate() {
+        let mut t = FrameThrottle::new(cfg());
+        // raw "a" → pixels P.
+        assert!(t.should_decode(ms(0), b"raw-a"));
+        assert!(t.should_upload(ms(0), b"P"));
+        // raw "b" (different bytes) → same pixels P: marks the stream
+        // non-deterministic and skips the upload.
+        assert!(t.should_decode(ms(33), b"raw-b"));
+        assert!(!t.should_upload(ms(33), b"P"));
+        // Now byte-identical raw frames are idle-gated (decoded) rather than
+        // fast-skipped, since raw dedup is no longer trusted.
+        for i in 1..15 {
+            assert!(t.should_decode(ms(33 + i * 33), b"raw-b"));
         }
-        // Now idle: a decode just happened, so an immediate one is gated off...
-        assert!(!t.should_decode(ms(15 * 33), b"static"));
-        // ...but after idle_decode (100ms) it decodes again.
-        assert!(t.should_decode(ms(15 * 33 + 100), b"static"));
     }
 
     #[test]
@@ -262,10 +308,16 @@ mod tests {
     }
 
     #[test]
-    fn watchdog_forces_refresh_after_interval() {
+    fn watchdog_forces_refresh_after_interval_and_debounces() {
         let mut t = FrameThrottle::new(cfg());
-        t.should_upload(ms(0), b"pixels");
+        t.should_decode(ms(0), b"raw");
+        t.should_upload(ms(0), b"pixels"); // displayed at t=0
         assert!(!t.should_force_refresh(ms(500)));
         assert!(t.should_force_refresh(ms(1000))); // watchdog = 1000ms
+                                                   // The GUI records the refresh; the next forced refresh must wait another
+                                                   // full interval (no continuous redraw spin under ControlFlow::Poll).
+        t.note_refresh(ms(1000));
+        assert!(!t.should_force_refresh(ms(1500)));
+        assert!(t.should_force_refresh(ms(2000)));
     }
 }

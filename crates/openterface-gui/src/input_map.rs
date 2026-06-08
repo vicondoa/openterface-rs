@@ -4,9 +4,9 @@
 //! usage, so the target sees the same physical key regardless of host layout.
 //! Modifiers are tracked and sent in the CH9329 modifier byte.
 
-use openterface_core::event::{HidUsage, Modifiers, MouseButton};
+use openterface_core::event::{HidUsage, MouseButton};
 use winit::event::MouseButton as WinitButton;
-use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
+use winit::keyboard::{KeyCode, PhysicalKey};
 
 /// Maps a `winit` [`KeyCode`] (W3C `code`) to a USB HID usage (Usage Page 0x07).
 #[must_use]
@@ -131,25 +131,6 @@ pub(crate) fn physical_to_hid(key: PhysicalKey) -> Option<HidUsage> {
     }
 }
 
-/// Converts a `winit` [`ModifiersState`] to the CH9329 modifier byte.
-#[must_use]
-pub(crate) fn modifiers_from_winit(state: ModifiersState) -> Modifiers {
-    let mut m = Modifiers::NONE;
-    if state.control_key() {
-        m = m.union(Modifiers::LEFT_CTRL);
-    }
-    if state.shift_key() {
-        m = m.union(Modifiers::LEFT_SHIFT);
-    }
-    if state.alt_key() {
-        m = m.union(Modifiers::LEFT_ALT);
-    }
-    if state.super_key() {
-        m = m.union(Modifiers::LEFT_GUI);
-    }
-    m
-}
-
 /// Maps a `winit` mouse button to a core [`MouseButton`], if supported.
 #[must_use]
 pub(crate) fn mouse_button(button: WinitButton) -> Option<MouseButton> {
@@ -172,17 +153,6 @@ mod tests {
         assert_eq!(keycode_to_hid(KeyCode::Escape), Some(HidUsage(0x29)));
         assert_eq!(keycode_to_hid(KeyCode::Delete), Some(HidUsage(0x4C)));
         assert_eq!(keycode_to_hid(KeyCode::ControlLeft), Some(HidUsage(0xE0)));
-    }
-
-    #[test]
-    fn modifiers_convert() {
-        let mut s = ModifiersState::empty();
-        s.insert(ModifiersState::CONTROL);
-        s.insert(ModifiersState::ALT);
-        let m = modifiers_from_winit(s);
-        assert!(m.contains(Modifiers::LEFT_CTRL));
-        assert!(m.contains(Modifiers::LEFT_ALT));
-        assert!(!m.contains(Modifiers::LEFT_SHIFT));
     }
 
     #[test]

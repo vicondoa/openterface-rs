@@ -9,25 +9,26 @@ use std::sync::mpsc::Receiver;
 use std::time::Instant;
 
 use openterface_core::decode::decode_frame;
-use openterface_core::event::InputEvent;
+use openterface_core::event::{InputEvent, Modifiers};
+use openterface_core::protocol::hid::modifier_bit;
 use openterface_core::session::Session;
 use openterface_core::video::Frame;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::ModifiersState;
 use winit::window::{Window, WindowId};
 
 use crate::coord::window_to_abs;
-use crate::input_map::{modifiers_from_winit, mouse_button, physical_to_hid};
+use crate::input_map::{mouse_button, physical_to_hid};
 use crate::throttle::{FrameThrottle, ThrottleConfig};
 
 /// Configuration for [`run`].
 pub struct RunConfig {
-    /// The live session driving the target (input sink).
-    pub session: Session,
-    /// Captured frames from the session's capture thread.
-    pub frames: Receiver<Frame>,
+    /// The live session driving the target (input sink). `None` in dummy mode.
+    pub session: Option<Session>,
+    /// Captured frames from the session's capture thread. `None` in dummy mode
+    /// (a static test pattern is shown instead).
+    pub frames: Option<Receiver<Frame>>,
     /// Open the window fullscreen (`OPENTERFACE_FULLSCREEN`).
     pub fullscreen: bool,
     /// Window title.
@@ -54,7 +55,9 @@ struct App {
     cfg: RunConfig,
     gpu: Option<GpuWindow>,
     throttle: FrameThrottle,
-    modifiers: ModifiersState,
+    /// The CH9329 modifier byte, tracked from physical modifier-key events so
+    /// left/right modifiers (incl. AltGr) are preserved layout-independently.
+    mod_byte: Modifiers,
     start: Instant,
 }
 
@@ -64,7 +67,7 @@ impl App {
             cfg,
             gpu: None,
             throttle: FrameThrottle::new(ThrottleConfig::from_env()),
-            modifiers: ModifiersState::empty(),
+            mod_byte: Modifiers::NONE,
             start: Instant::now(),
         }
     }
@@ -73,15 +76,33 @@ impl App {
         self.start.elapsed()
     }
 
+    /// Forwards an input event to the session, if one is attached (no-op in
+    /// dummy mode).
+    fn send(&self, event: InputEvent) {
+        if let Some(s) = &self.cfg.session {
+            s.send_input(event);
+        }
+    }
+
+    /// Releases all held input on the target (focus loss / pointer leave).
+    fn release_all(&self) {
+        if let Some(s) = &self.cfg.session {
+            s.release_all();
+        }
+    }
+
     /// Pulls any available capture frames, applying the idle-decode throttle,
     /// and uploads the newest decoded image to the GPU.
     fn pump_frames(&mut self) {
         if self.gpu.is_none() {
             return;
         }
+        let Some(frames) = self.cfg.frames.as_ref() else {
+            return; // dummy mode: a static pattern was uploaded in `resumed`
+        };
         let now = self.now();
         let mut newest: Option<Frame> = None;
-        while let Ok(frame) = self.cfg.frames.try_recv() {
+        while let Ok(frame) = frames.try_recv() {
             newest = Some(frame);
         }
         let mut uploaded = false;
@@ -92,13 +113,15 @@ impl App {
                         let gpu = self.gpu.as_mut().expect("checked above");
                         gpu.renderer.upload(&img);
                         gpu.window.request_redraw();
-
                         uploaded = true;
                     }
                 }
             }
         }
         if !uploaded && self.throttle.should_force_refresh(now) {
+            // Record the refresh so the watchdog fires once per interval rather
+            // than spinning every loop under ControlFlow::Poll.
+            self.throttle.note_refresh(now);
             if let Some(gpu) = self.gpu.as_ref() {
                 gpu.window.request_redraw();
             }
@@ -150,7 +173,13 @@ impl ApplicationHandler for App {
             view_formats: vec![],
         };
         surface.configure(&device, &config);
-        let renderer = crate::renderer::Renderer::new(device, queue, format);
+        let mut renderer = crate::renderer::Renderer::new(device, queue, format);
+
+        // Dummy mode (no capture): upload a static test pattern so the window is
+        // not blank and the render path is exercised without a device.
+        if self.cfg.frames.is_none() {
+            renderer.upload(&test_pattern(640, 360));
+        }
 
         self.gpu = Some(GpuWindow {
             window,
@@ -172,16 +201,32 @@ impl ApplicationHandler for App {
                     gpu.surface.configure(gpu.renderer.device(), &gpu.config);
                 }
             }
-            WindowEvent::ModifiersChanged(m) => {
-                self.modifiers = m.state();
+            WindowEvent::Focused(false) => {
+                // Releasing focus: drop all held keys/buttons so the target
+                // never sees stuck input (C++ focus-loss parity).
+                self.mod_byte = Modifiers::NONE;
+                self.release_all();
+            }
+            WindowEvent::CursorLeft { .. } => {
+                self.release_all();
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 if let Some(usage) = physical_to_hid(event.physical_key) {
+                    let pressed = event.state == ElementState::Pressed;
+                    // Track the CH9329 modifier byte from physical modifier keys
+                    // (preserves left/right and AltGr, layout-independently).
+                    if let Some(bit) = modifier_bit(usage) {
+                        self.mod_byte = if pressed {
+                            self.mod_byte.union(bit)
+                        } else {
+                            Modifiers(self.mod_byte.0 & !bit.0)
+                        };
+                    }
                     self.throttle.note_input(self.now());
-                    self.cfg.session.send_input(InputEvent::Key {
+                    self.send(InputEvent::Key {
                         usage,
-                        modifiers: modifiers_from_winit(self.modifiers),
-                        pressed: event.state == ElementState::Pressed,
+                        modifiers: self.mod_byte,
+                        pressed,
                     });
                 }
             }
@@ -190,15 +235,13 @@ impl ApplicationHandler for App {
                     let pos =
                         window_to_abs(position.x, position.y, gpu.config.width, gpu.config.height);
                     self.throttle.note_input(self.now());
-                    self.cfg
-                        .session
-                        .send_input(InputEvent::MouseMoveAbsolute { pos });
+                    self.send(InputEvent::MouseMoveAbsolute { pos });
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if let Some(b) = mouse_button(button) {
                     self.throttle.note_input(self.now());
-                    self.cfg.session.send_input(InputEvent::MouseButton {
+                    self.send(InputEvent::MouseButton {
                         button: b,
                         pressed: state == ElementState::Pressed,
                     });
@@ -211,7 +254,7 @@ impl ApplicationHandler for App {
                 };
                 if ticks != 0 {
                     self.throttle.note_input(self.now());
-                    self.cfg.session.send_input(InputEvent::Scroll {
+                    self.send(InputEvent::Scroll {
                         delta: ticks.clamp(-127, 127) as i8,
                     });
                 }
@@ -239,5 +282,22 @@ impl ApplicationHandler for App {
 
     fn about_to_wait(&mut self, _el: &ActiveEventLoop) {
         self.pump_frames();
+    }
+}
+
+/// Builds a simple RGBA gradient test pattern for dummy mode.
+fn test_pattern(width: u32, height: u32) -> openterface_core::decode::RgbaImage {
+    let mut pixels = Vec::with_capacity((width * height * 4) as usize);
+    for y in 0..height {
+        for x in 0..width {
+            let r = (x * 255 / width.max(1)) as u8;
+            let g = (y * 255 / height.max(1)) as u8;
+            pixels.extend_from_slice(&[r, g, 0x40, 0xFF]);
+        }
+    }
+    openterface_core::decode::RgbaImage {
+        width,
+        height,
+        pixels,
     }
 }

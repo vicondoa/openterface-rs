@@ -12,6 +12,7 @@ use openterface_core::decode::RgbaImage;
 #[test]
 fn renders_uploaded_frame_offscreen() {
     let instance = wgpu::Instance::default();
+    let require = std::env::var("OPENTERFACE_REQUIRE_GPU").is_ok();
     let Some(adapter) =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::LowPower,
@@ -19,14 +20,23 @@ fn renders_uploaded_frame_offscreen() {
             force_fallback_adapter: true, // prefer a software adapter
         }))
     else {
+        if require {
+            panic!("OPENTERFACE_REQUIRE_GPU is set but no wgpu adapter was found");
+        }
         eprintln!("no wgpu adapter available; skipping headless render test");
         return;
     };
-    let Ok((device, queue)) =
-        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default(), None))
-    else {
-        eprintln!("no wgpu device; skipping");
-        return;
+    let device_queue =
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default(), None));
+    let (device, queue) = match device_queue {
+        Ok(dq) => dq,
+        Err(e) => {
+            if require {
+                panic!("OPENTERFACE_REQUIRE_GPU is set but no wgpu device: {e}");
+            }
+            eprintln!("no wgpu device; skipping");
+            return;
+        }
     };
 
     let format = wgpu::TextureFormat::Rgba8UnormSrgb;

@@ -144,6 +144,12 @@ impl Session {
         });
     }
 
+    /// Releases all held keys, modifiers, and mouse buttons on the target.
+    /// Call this on window focus loss / pointer leave to avoid stuck input.
+    pub fn release_all(&self) {
+        self.send_input(InputEvent::ReleaseAll);
+    }
+
     /// Stops the session and joins the worker threads. Idempotent.
     pub fn shutdown(&mut self) {
         self.running.store(false, Ordering::SeqCst);
