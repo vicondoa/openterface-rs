@@ -197,7 +197,15 @@ impl VideoSource for V4l2Source {
                 attempts.join("; ")
             ))
         })?;
-        let fps = self.set_frame_rate(config.fps)?;
+        let fps = match self.set_frame_rate(config.fps) {
+            Ok(applied_fps) => applied_fps,
+            Err(e) => {
+                // C++ parity: VIDIOC_S_PARM failure is a warning, not fatal —
+                // some devices accept the format but reject frame-rate setting.
+                tracing::warn!("could not set {}fps ({e}); continuing", config.fps);
+                config.fps
+            }
+        };
         self.active = Some(CaptureConfig {
             width: applied.width,
             height: applied.height,
