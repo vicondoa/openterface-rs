@@ -60,6 +60,16 @@ fn status_runs_and_exits_zero() {
 }
 
 #[test]
+fn verbose_prints_banner() {
+    // C++ parity: `-v` prints "Verbose mode enabled" before the command body.
+    bin()
+        .args(["-v", "scan"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Verbose mode enabled"));
+}
+
+#[test]
 fn reset_without_serial_fails_with_usage() {
     bin()
         .arg("reset")

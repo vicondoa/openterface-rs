@@ -133,7 +133,9 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
 #[cfg(feature = "hardware")]
 fn reset_impl(serial: &Path) -> ExitCode {
     use openterface_core::serial::backend::SerialPortTransport;
-    use openterface_core::serial::{connect_with_fallback, SerialTransport};
+    use openterface_core::serial::{
+        connect_with_fallback, factory_reset, FACTORY_RESET_RTS_HOLD, FACTORY_RESET_SETTLE,
+    };
     use std::time::Duration;
 
     let path = serial.to_string_lossy();
@@ -153,13 +155,19 @@ fn reset_impl(serial: &Path) -> ExitCode {
         eprintln!("Failed to negotiate with CH9329: {e}");
         return ExitCode::Failure;
     }
-    // Software reset/reconfigure. (The hardware RTS-toggle sequence is validated
-    // on the work-ssd VM in W6.)
-    if let Err(e) = transport.write_all(&openterface_core::protocol::ch9329::software_reset()) {
-        eprintln!("Reset command failed: {e}");
+    // Hardware factory reset: pulse RTS high ~4s, release, settle, then software
+    // reset (C++ parity). This blocks for ~4.5s.
+    println!("Pulsing RTS for factory reset (~4s)...");
+    if let Err(e) = factory_reset(
+        &mut transport,
+        FACTORY_RESET_RTS_HOLD,
+        FACTORY_RESET_SETTLE,
+        std::thread::sleep,
+    ) {
+        eprintln!("Factory reset failed: {e}");
         return ExitCode::Failure;
     }
-    println!("Factory reset command sent.");
+    println!("Factory reset complete.");
     ExitCode::Success
 }
 
@@ -178,12 +186,20 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
 
     // Dummy mode: open the window with a test pattern, no devices.
     if args.dummy {
-        println!("Starting in dummy mode (no device connection).");
+        println!("Starting Openterface KVM in dummy mode...");
+        println!("No device connections will be made.");
+        println!("- Running in dummy mode (no device connections)");
+        println!("- Video will show test pattern");
+        println!("- Input will be simulated (not forwarded)");
+        if args.debug {
+            println!("Debug mode enabled - input events will be logged");
+        }
         let cfg = RunConfig {
             session: None,
             frames: None,
             fullscreen,
             title: "Openterface KVM (dummy)".to_string(),
+            debug: args.debug,
         };
         return match run(cfg) {
             Ok(()) => ExitCode::Success,
@@ -274,7 +290,11 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
         frames: Some(frame_rx),
         fullscreen,
         title: "Openterface KVM".to_string(),
+        debug: args.debug,
     };
+    if args.debug {
+        println!("Debug mode enabled - input events will be logged");
+    }
     match run(cfg) {
         Ok(()) => ExitCode::Success,
         Err(e) => {

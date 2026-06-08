@@ -109,8 +109,18 @@ pub(crate) struct ResetArgs {
 }
 
 impl Cli {
+    /// Whether logging should be raised so input/debug output is visible:
+    /// `-v/--verbose` or `connect --debug`.
+    pub(crate) fn wants_verbose_logging(&self) -> bool {
+        self.verbose || matches!(&self.command, Command::Connect(a) if a.debug)
+    }
+
     /// Runs the parsed command.
     pub(crate) fn run(self) -> ExitCode {
+        // C++ parity: every callback prints this banner first when verbose.
+        if self.verbose {
+            println!("Verbose mode enabled");
+        }
         match &self.command {
             Command::Connect(args) => crate::commands::connect(args, self.verbose),
             Command::Scan => crate::commands::scan(self.verbose),

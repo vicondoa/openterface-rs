@@ -8,7 +8,7 @@ use tracing_subscriber::EnvFilter;
 
 fn main() -> std::process::ExitCode {
     let cli = cli::Cli::parse();
-    init_tracing(cli.verbose);
+    init_tracing(cli.wants_verbose_logging());
     cli.run().into()
 }
 

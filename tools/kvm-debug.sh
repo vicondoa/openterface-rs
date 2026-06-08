@@ -442,21 +442,36 @@ EOF_WARNING
 
 # ---- capture / metric helpers -----------------------------------------------
 
+# Grab `count` MJPG frames from `video` into `outfile` (concatenated JPEGs).
+# Uses v4l2-ctl mmap streaming, which is reliable on MS2109 firmware where
+# ffmpeg's v4l2 MJPEG demuxer stalls. Returns non-zero on failure.
+grab_mjpeg_frames() {
+  local video=$1 count=$2 outfile=$3
+  timeout 15 v4l2-ctl --device="$video" \
+    --set-fmt-video="width=${WIDTH},height=${HEIGHT},pixelformat=MJPG" \
+    --stream-mmap --stream-count="$count" --stream-to="$outfile" >/dev/null 2>&1
+}
+
 capture_gray_od_text() {
-  local video=$1 warmup=$2 vf out count
+  local video=$1 warmup=$2 vf out count tmp
   vf="select=gte(n\\,$warmup),format=gray"
+  tmp=$(mktemp)
   for _ in 1 2 3; do
-    if out=$(ffmpeg -hide_banner -loglevel error -f v4l2 -input_format mjpeg \
-      -video_size "${WIDTH}x${HEIGHT}" -i "$video" -vf "$vf" -frames:v 1 \
-      -f rawvideo -pix_fmt gray - 2>/dev/null | od -An -v -tu1); then
+    # Grab via v4l2-ctl (reliable), then decode the MJPEG file with ffmpeg
+    # (file input never stalls the way the v4l2 demuxer does).
+    if grab_mjpeg_frames "$video" "$((warmup + 1))" "$tmp" \
+      && out=$(ffmpeg -hide_banner -loglevel error -f mjpeg -i "$tmp" -vf "$vf" \
+        -frames:v 1 -f rawvideo -pix_fmt gray - 2>/dev/null | od -An -v -tu1); then
       count=$(printf '%s\n' "$out" | wc -w | tr -d '[:space:]')
       if [ "$count" -eq "$FRAME_PIXELS" ]; then
+        rm -f "$tmp"
         printf '%s\n' "$out"
         return 0
       fi
     fi
     sleep 0.1
   done
+  rm -f "$tmp"
   return 1
 }
 
@@ -503,11 +518,13 @@ run_capture() {
     return 0
   fi
 
-  require_cmds ffmpeg v4l2-ctl
+  require_cmds v4l2-ctl
   local video
   video=$(get_video)
-  ffmpeg -hide_banner -loglevel error -f v4l2 -input_format mjpeg \
-    -video_size "${WIDTH}x${HEIGHT}" -i "$video" -frames:v 1 -y "$out"
+  # A single MJPG v4l2 buffer is a complete JPEG, so stream one frame straight
+  # to the output file. (ffmpeg's v4l2 MJPEG demuxer stalls on some MS2109
+  # firmware; v4l2-ctl mmap streaming is reliable.)
+  grab_mjpeg_frames "$video" 1 "$out" || die "capture failed"
   echo "capture: wrote $out"
 }
 

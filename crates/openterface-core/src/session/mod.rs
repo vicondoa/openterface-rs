@@ -132,6 +132,27 @@ impl Session {
         });
     }
 
+    /// Types `text` on the target by submitting key press/release events through
+    /// the paced input path (manual text injection; C++ `Serial::sendText`
+    /// parity). Unmappable characters are skipped; each character is a press
+    /// (with any needed modifier) followed by an all-keys-released report.
+    pub fn send_text(&self, text: &str) {
+        for ch in text.chars() {
+            if let Some((mods, usage)) = crate::protocol::hid::ascii_to_hid(ch) {
+                self.send_input(InputEvent::Key {
+                    usage,
+                    modifiers: mods,
+                    pressed: true,
+                });
+                self.send_input(InputEvent::Key {
+                    usage,
+                    modifiers: Modifiers::NONE,
+                    pressed: false,
+                });
+            }
+        }
+    }
+
     /// Clicks a mouse button (press then release) at the current position.
     pub fn click(&self, button: MouseButton) {
         self.send_input(InputEvent::MouseButton {
