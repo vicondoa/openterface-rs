@@ -15,6 +15,10 @@ use openterface_core::video::{
 };
 use openterface_core::{Error, Result};
 
+/// A real, decode-valid 16x16 baseline JPEG (shared with the decode tests) used
+/// for healthy simulated MJPEG frames.
+const GRAY16_JPEG: &[u8] = include_bytes!("../fixtures/gray16.jpg");
+
 /// In-memory serial transport: records everything written, replays scripted
 /// reads. The recorded bytes are the basis for protocol-level assertions.
 #[derive(Default)]
@@ -76,15 +80,33 @@ impl SerialTransport for MockSerial {
     }
 }
 
-/// A video source that emits a fixed synthetic frame on demand.
+/// A scripted fault the [`SimulatedVideoSource`] can inject, to exercise the
+/// failure modes a real capture device exhibits.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum VideoFault {
+    /// The next `next_frame` returns a timeout (no data within the deadline).
+    Timeout,
+    /// The next frame's payload is corrupt (e.g. truncated MJPEG).
+    CorruptFrame,
+    /// The device disappears mid-session: this and all later calls error
+    /// (simulates a USB/IP detach).
+    Disconnect,
+}
+
+/// A video source that emits synthetic frames on demand, with optional scripted
+/// faults.
 ///
 /// The default frame is a tiny solid-color buffer in the configured format —
-/// enough to drive pipeline plumbing without a real capture device.
+/// enough to drive pipeline plumbing without a real capture device. Faults are
+/// queued via [`SimulatedVideoSource::inject`] and consumed in order, one per
+/// `next_frame` call.
 #[derive(Default)]
 pub struct SimulatedVideoSource {
     config: CaptureConfig,
     started: bool,
     frames: u64,
+    faults: VecDeque<VideoFault>,
+    disconnected: bool,
 }
 
 impl SimulatedVideoSource {
@@ -99,29 +121,48 @@ impl SimulatedVideoSource {
     pub fn with_config(config: CaptureConfig) -> Self {
         Self {
             config,
-            started: false,
-            frames: 0,
+            ..Self::default()
         }
     }
 
-    fn synth_frame(&self) -> Frame {
-        // A trivially small placeholder payload; W2.3/W2.5 replace this with
-        // real synthetic MJPEG/YUYV bytes derived from W1.2 fixtures.
-        let data = match self.config.format {
-            PixelFormat::Mjpeg => vec![0xFF, 0xD8, 0xFF, 0xD9], // empty JPEG SOI/EOI
-            PixelFormat::Yuyv => vec![0x00, 0x80, 0x00, 0x80],
+    /// Queues a fault to be applied on an upcoming `next_frame` call.
+    pub fn inject(&mut self, fault: VideoFault) {
+        self.faults.push_back(fault);
+    }
+
+    fn synth_frame(&self, corrupt: bool) -> Frame {
+        let (data, bytes_per_line) = match (self.config.format, corrupt) {
+            // A real, decode-valid JPEG (the same 16x16 fixture the decode
+            // tests use) so a healthy simulated frame round-trips through decode.
+            (PixelFormat::Mjpeg, false) => (GRAY16_JPEG.to_vec(), 0),
+            // Truncated JPEG: valid SOI, no EOI/scan → decode fails.
+            (PixelFormat::Mjpeg, true) => (vec![0xFF, 0xD8], 0),
+            // A full-size mid-gray YUYV buffer for the configured dimensions.
+            (PixelFormat::Yuyv, false) => {
+                let row = self.config.width as usize * 2;
+                let mut buf = vec![0u8; row * self.config.height as usize];
+                for px in buf.chunks_exact_mut(2) {
+                    px[0] = 0x7F; // Y
+                    px[1] = 0x80; // U/V
+                }
+                (buf, self.config.width * 2)
+            }
+            // A YUYV frame too short for its declared dimensions → decode fails.
+            (PixelFormat::Yuyv, true) => (vec![0x00], self.config.width * 2),
         };
-        let bytes_per_line = match self.config.format {
-            PixelFormat::Mjpeg => 0,
-            PixelFormat::Yuyv => self.config.width * 2,
+        // For MJPEG, report the fixture's intrinsic 16x16 so a decoded frame
+        // matches; for YUYV, report the configured dimensions.
+        let (width, height) = match self.config.format {
+            PixelFormat::Mjpeg if !corrupt => (16, 16),
+            _ => (self.config.width, self.config.height),
         };
         Frame {
             format: self.config.format,
-            width: self.config.width,
-            height: self.config.height,
+            width,
+            height,
             bytes_per_line,
             color_range: ColorRange::Limited,
-            color_space: if self.config.height >= 720 {
+            color_space: if height >= 720 {
                 ColorSpace::Bt709
             } else {
                 ColorSpace::Bt601
@@ -162,11 +203,27 @@ impl VideoSource for SimulatedVideoSource {
     }
 
     fn next_frame(&mut self, _timeout: Duration) -> Result<Frame> {
+        if self.disconnected {
+            return Err(Error::Video("device disconnected".to_string()));
+        }
         if !self.started {
             return Err(Error::Video("capture not started".to_string()));
         }
-        self.frames += 1;
-        Ok(self.synth_frame())
+        match self.faults.pop_front() {
+            Some(VideoFault::Timeout) => Err(Error::Timeout),
+            Some(VideoFault::Disconnect) => {
+                self.disconnected = true;
+                Err(Error::Video("device disconnected".to_string()))
+            }
+            Some(VideoFault::CorruptFrame) => {
+                self.frames += 1;
+                Ok(self.synth_frame(true))
+            }
+            None => {
+                self.frames += 1;
+                Ok(self.synth_frame(false))
+            }
+        }
     }
 }
 
@@ -215,6 +272,58 @@ mod tests {
         v.start().unwrap();
         let f = v.next_frame(Duration::from_millis(0)).unwrap();
         assert_eq!(f.format, PixelFormat::Mjpeg);
+    }
+
+    #[test]
+    fn simulated_video_injects_faults_in_order() {
+        use openterface_core::decode::decode_frame;
+        let mut v = SimulatedVideoSource::new();
+        v.start().unwrap();
+        v.inject(VideoFault::Timeout);
+        v.inject(VideoFault::CorruptFrame);
+        // First call: timeout.
+        assert!(matches!(
+            v.next_frame(Duration::from_millis(0)),
+            Err(openterface_core::Error::Timeout)
+        ));
+        // Second call: a corrupt (truncated) frame is returned but fails decode.
+        let corrupt = v.next_frame(Duration::from_millis(0)).unwrap();
+        assert!(decode_frame(&corrupt).is_err());
+        // Third call: a healthy frame that decodes successfully.
+        let ok = v.next_frame(Duration::from_millis(0)).unwrap();
+        assert!(decode_frame(&ok).is_ok());
+    }
+
+    #[test]
+    fn healthy_simulated_frames_decode() {
+        use openterface_core::decode::decode_frame;
+        use openterface_core::video::{CaptureConfig, PixelFormat};
+        // MJPEG.
+        let mut v = SimulatedVideoSource::new();
+        v.start().unwrap();
+        let mjpeg = v.next_frame(Duration::from_millis(0)).unwrap();
+        assert!(decode_frame(&mjpeg).is_ok());
+        // YUYV at a small even size.
+        let mut y = SimulatedVideoSource::with_config(CaptureConfig {
+            width: 8,
+            height: 4,
+            fps: 30,
+            format: PixelFormat::Yuyv,
+        });
+        y.start().unwrap();
+        let yuyv = y.next_frame(Duration::from_millis(0)).unwrap();
+        let img = decode_frame(&yuyv).unwrap();
+        assert_eq!((img.width, img.height), (8, 4));
+    }
+
+    #[test]
+    fn simulated_video_disconnect_is_sticky() {
+        let mut v = SimulatedVideoSource::new();
+        v.start().unwrap();
+        v.inject(VideoFault::Disconnect);
+        assert!(v.next_frame(Duration::from_millis(0)).is_err());
+        // Stays disconnected on subsequent calls.
+        assert!(v.next_frame(Duration::from_millis(0)).is_err());
     }
 
     #[test]

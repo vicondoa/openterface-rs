@@ -58,6 +58,48 @@ pub enum MouseButton {
     Middle,
 }
 
+/// CH9329 mouse button bitmask: bit0 left, bit1 right, bit2 middle.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub struct ButtonMask(pub u8);
+
+impl ButtonMask {
+    /// No buttons held.
+    pub const NONE: ButtonMask = ButtonMask(0x00);
+    /// Left button bit.
+    pub const LEFT: ButtonMask = ButtonMask(0x01);
+    /// Right button bit.
+    pub const RIGHT: ButtonMask = ButtonMask(0x02);
+    /// Middle button bit.
+    pub const MIDDLE: ButtonMask = ButtonMask(0x04);
+
+    /// The mask bit for a single button.
+    #[must_use]
+    pub fn from_button(button: MouseButton) -> ButtonMask {
+        match button {
+            MouseButton::Left => ButtonMask::LEFT,
+            MouseButton::Right => ButtonMask::RIGHT,
+            MouseButton::Middle => ButtonMask::MIDDLE,
+        }
+    }
+
+    /// Returns a copy with `button` set or cleared.
+    #[must_use]
+    pub fn with(self, button: MouseButton, pressed: bool) -> ButtonMask {
+        let bit = ButtonMask::from_button(button).0;
+        if pressed {
+            ButtonMask(self.0 | bit)
+        } else {
+            ButtonMask(self.0 & !bit)
+        }
+    }
+
+    /// The raw bitmask byte.
+    #[must_use]
+    pub fn bits(self) -> u8 {
+        self.0
+    }
+}
+
 /// An absolute pointer position in the CH9329 `0..=4095` coordinate space.
 ///
 /// The GUI maps window-relative coordinates into this space before forwarding.
