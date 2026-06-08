@@ -26,6 +26,7 @@ video-backend = ["dep:v4l"]
 [dev-dependencies]
 proptest = "1"
 nix = { version = "0.29", features = ["term", "fs"] }
+openterface-test-support = { path = "../openterface-test-support" }
 
 [lints]
 workspace = true

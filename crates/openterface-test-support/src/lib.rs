@@ -6,6 +6,7 @@
 //! doubles for [`SerialTransport`], [`VideoSource`], and [`DeviceScanner`].
 
 use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use openterface_core::discovery::{DeviceInfo, DeviceScanner};
@@ -18,6 +19,45 @@ use openterface_core::{Error, Result};
 /// A real, decode-valid 16x16 baseline JPEG (shared with the decode tests) used
 /// for healthy simulated MJPEG frames.
 const GRAY16_JPEG: &[u8] = include_bytes!("../fixtures/gray16.jpg");
+
+/// A serial transport that appends every written byte to a shared buffer.
+///
+/// Unlike [`MockSerial`], the recording sink is an `Arc<Mutex<Vec<u8>>>`, so a
+/// test can keep a handle to inspect what was written **after** moving the
+/// transport into a worker thread (as the session does).
+pub struct SharedSerial {
+    sink: Arc<Mutex<Vec<u8>>>,
+}
+
+impl SharedSerial {
+    /// Creates a transport and returns it together with a handle to the bytes
+    /// it will write.
+    #[must_use]
+    pub fn new() -> (Self, Arc<Mutex<Vec<u8>>>) {
+        let sink = Arc::new(Mutex::new(Vec::new()));
+        (
+            Self {
+                sink: Arc::clone(&sink),
+            },
+            sink,
+        )
+    }
+}
+
+impl SerialTransport for SharedSerial {
+    fn write_all(&mut self, bytes: &[u8]) -> Result<()> {
+        self.sink.lock().unwrap().extend_from_slice(bytes);
+        Ok(())
+    }
+
+    fn read(&mut self, _buf: &mut [u8], _timeout: Duration) -> Result<usize> {
+        Ok(0)
+    }
+
+    fn set_baud_rate(&mut self, _baud: u32) -> Result<()> {
+        Ok(())
+    }
+}
 
 /// In-memory serial transport: records everything written, replays scripted
 /// reads. The recorded bytes are the basis for protocol-level assertions.
