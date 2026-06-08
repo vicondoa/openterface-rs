@@ -17,8 +17,8 @@
    `cargo clippy --all-targets -- -D warnings`, `cargo test` (and `nextest`
    once wired).
 
-**Current status:** `W4 — Frontends` — CLI + winit/wgpu display landed (95 hardware-free
-tests; headless GPU render verified on lavapipe). W4 work-review panel gate in progress.
+**Current status:** `W5 — Docs / packaging / harness` — next up. W4 Frontends CLOSED
+(98 hardware-free tests; headless GPU render verified on lavapipe; panel 5/5 on GPT-5.5).
 Frontends` (CLI binary ∥ winit/wgpu display).
 (71 hardware-free tests). W3 work-review panel gate in progress.
 Integration` (pacing scheduler, session orchestration, vertical slice).
@@ -129,7 +129,7 @@ CI, license/docs stubs, and the public repo created + protected.*
 - [x] `W4.1` CLI binary (scan/status/reset/connect + tracing + 10 assert_cmd tests; hardware feature).
 - [x] `W4.2` winit/wgpu display + input capture + idle-decode throttle (headless render passes on lavapipe).
       tunables + idle-decode throttle + headless render test).
-- [ ] **W4 panel gate** (rust, input, video, product, test).
+- [x] **W4 panel gate** (rust, input, video, product, test).
 
 ## W5 — Docs / packaging / harness (fan-out ×3 → serial cut)
 
@@ -175,3 +175,11 @@ _Append a one-line entry when a wave closes (date, wave, panel result, notes)._
   drains releases), end-to-end vertical slice. 75 hardware-free tests. Panel caught real
   input-ordering bugs: releases not jumping the batch at the session boundary, releases lost on
   shutdown, abs/rel position desync, and a flush-with-wrong-button-mask drag bug.
+- **2026-06-07 — W4 Frontends — CLOSED.** Panel 5/5 (rust, test ✓ after `W4fu1`; input, product
+  ✓ after `W4fu2`; video ✓ after `W4fu3`), reviewers on GPT-5.5. W4.1 CLI (scan/status/reset/
+  connect + tracing + assert_cmd tests; `hardware` feature gates backends). W4.2 winit/wgpu
+  display: pure coord/throttle/input_map modules (always tested) + winit/wgpu behind `display`
+  feature; headless render verified on lavapipe. 98 hardware-free tests. Panel caught real bugs:
+  modifier byte not cleared on focus loss / close, releases not flushed on window-close, idle-decode
+  throttle wedging static streams (raw-changed tracking so wake re-decodes don't poison raw-dedup).
+  PR #5.
