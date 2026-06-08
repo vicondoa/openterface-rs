@@ -32,9 +32,11 @@ jobs:
             runner: ubuntu-24.04-arm   # native arm64 runner (no cross sysroot)
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
 
       - name: Install system libraries (hardware feature)
         run: |
@@ -84,7 +86,7 @@ jobs:
           sh -n packaging/install.sh
           sh packaging/install.sh --help >/dev/null
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ steps.stage.outputs.name }}
           path: |
@@ -100,9 +102,11 @@ jobs:
     permissions:
       contents: write   # only this job can write releases
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           path: artifacts
           merge-multiple: true
@@ -139,8 +143,10 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.publish_crates == true
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
       - name: Install system libraries
         run: |
           sudo apt-get update
