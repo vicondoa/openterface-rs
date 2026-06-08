@@ -26,6 +26,13 @@ use crate::protocol::ch9329;
 /// `OPENTERFACE_MOUSE_INTERVAL_MS`.
 pub const DEFAULT_MOUSE_INTERVAL: Duration = Duration::from_millis(33);
 
+/// Minimum spacing enforced between **any** two consecutive CH9329 writes
+/// (including back-to-back priority key/button frames). The C++ `sendDataRaw`
+/// serializes writes with a ~4 ms gap so a burst (e.g. many releases at once)
+/// never overruns the chip's command buffer. Enforced by the session writer at
+/// the physical write layer (see [`crate::session`]).
+pub const DEFAULT_COMMAND_GAP: Duration = Duration::from_millis(4);
+
 /// Environment variable that overrides the mouse-move interval (milliseconds).
 pub const ENV_MOUSE_INTERVAL_MS: &str = "OPENTERFACE_MOUSE_INTERVAL_MS";
 

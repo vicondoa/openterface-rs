@@ -17,6 +17,7 @@ abort startup), except where a range is enforced as noted.
 | `OPENTERFACE_INPUT_WAKE_MS` | `250` | ms | After input, decode at full rate for this long. |
 | `OPENTERFACE_IDLE_WATCHDOG_MS` | `1000` | ms | Force a refresh at least this often (anti-freeze). |
 | `OPENTERFACE_FULLSCREEN` | `0` | `0`/`1` (also `false`/`no`/`off` = off) | Start the window fullscreen. `0`/empty/`false` stay windowed. |
+| `OPENTERFACE_USE_LIBDECOR` | `1` | `0`/`1` (also `false`/`no`/`off`) | `1` (default) draws libdecor client-side decorations (title bar) for CSD-only compositors; `0` opens a bare xdg-shell window (no decorations). |
 | `OPENTERFACE_REQUIRE_GPU` | _(unset)_ | set = require | Fail (not skip) if no wgpu adapter — used by the headless render test. |
 
 > **`OPENTERFACE_MOUSE_INTERVAL_MS` is not an optimization.** Over USB/IP the
@@ -37,8 +38,3 @@ suite only; they have no effect on the application.
 | `KVM_ALLOW_DESTRUCTIVE` | _(unset)_ | Required (with an explicit flag) to enable destructive verbs. See the harness guide. |
 | `OPENTERFACE_HW_TESTS` | _(unset)_ | `1` = run the `#[ignore]`d real-device tests (never in CI). |
 
-## Not yet supported
-
-`OPENTERFACE_USE_LIBDECOR` (bare xdg-shell vs libdecor CSD toggle) from the C++
-build is **not** wired in the Rust port yet — winit manages client-side
-decorations automatically. Tracked for the parity gate.

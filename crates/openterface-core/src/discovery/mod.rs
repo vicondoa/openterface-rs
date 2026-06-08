@@ -1,11 +1,11 @@
 //! Openterface device enumeration contract and a pure-sysfs implementation.
 //!
-//! Discovery prefers matching on the *driver/card name + USB identity* over a
-//! bare device-node guess: in a VM several `/dev/video*` nodes exist and only
-//! the `uvcvideo` MS2109 node is the KVM (the virtio-media decoder adapter must
-//! be skipped). [`SysfsScanner`] reads `/sys` and matches by card name and the
-//! USB VID/PID parsed from `modalias`, so it needs no `libudev` and is fully
-//! testable against a fixture `/sys` tree (no hardware).
+//! Discovery prefers matching on the `uvcvideo` driver, advertised MJPG formats
+//! when sysfs exposes them, and USB identity over a bare device-node guess. In a
+//! VM several `/dev/video*` nodes exist and only the uvcvideo MS2109 node is the
+//! KVM (the virtio-media decoder adapter must be skipped). [`SysfsScanner`]
+//! reads `/sys`, so it needs no `libudev` and is fully testable against a
+//! fixture `/sys` tree (no hardware).
 
 use std::path::{Path, PathBuf};
 
@@ -68,6 +68,43 @@ fn hex4(bytes: &[u8]) -> Option<u16> {
     u16::from_str_radix(s, 16).ok()
 }
 
+fn read_trimmed(path: &Path) -> Option<String> {
+    let value = std::fs::read_to_string(path).ok()?;
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_string())
+}
+
+#[must_use]
+fn video_node_index(name: &str) -> Option<u32> {
+    name.strip_prefix("video")?.parse().ok()
+}
+
+#[must_use]
+fn is_uvcvideo_driver(driver: Option<&str>) -> bool {
+    driver.is_some_and(|driver| driver.eq_ignore_ascii_case("uvcvideo"))
+}
+
+#[must_use]
+fn is_virtio_video(driver: Option<&str>, modaliases: &[String]) -> bool {
+    driver.is_some_and(|driver| driver.to_ascii_lowercase().contains("virtio"))
+        || modaliases
+            .iter()
+            .any(|modalias| modalias.to_ascii_lowercase().contains("virtio"))
+}
+
+#[must_use]
+fn advertises_mjpg_text(formats: &str) -> bool {
+    let formats = formats.to_ascii_uppercase();
+    formats.contains("MJPG") || formats.contains("MJPEG")
+}
+
+#[derive(Debug)]
+struct VideoCandidate {
+    index: u32,
+    path: PathBuf,
+    ids: Option<(u16, u16)>,
+}
+
 /// A `DeviceScanner` backed by the Linux `/sys` filesystem.
 ///
 /// Defaults to the real root `/`; tests point `root` at a fixture tree.
@@ -95,45 +132,80 @@ impl SysfsScanner {
         }
     }
 
+    fn modaliases(&self, class_dir: &Path) -> Vec<String> {
+        ["device/modalias", "device/../modalias"]
+            .into_iter()
+            .filter_map(|rel| read_trimmed(&class_dir.join(rel)))
+            .collect()
+    }
+
     /// Reads the USB `(vid, pid)` for a `/sys/class/<class>/<name>` entry by
     /// trying `device/modalias` then `device/../modalias`.
     fn usb_ids(&self, class_dir: &Path) -> Option<(u16, u16)> {
-        for rel in ["device/modalias", "device/../modalias"] {
-            let path = class_dir.join(rel);
-            if let Ok(s) = std::fs::read_to_string(&path) {
-                if let Some(ids) = parse_usb_modalias(s.trim()) {
-                    return Some(ids);
-                }
+        self.modaliases(class_dir)
+            .iter()
+            .find_map(|modalias| parse_usb_modalias(modalias))
+    }
+
+    fn driver_name(&self, class_dir: &Path) -> Option<String> {
+        let path = class_dir.join("device/driver");
+        if let Ok(target) = std::fs::read_link(&path) {
+            if let Some(driver) = target.file_name().and_then(|name| name.to_str()) {
+                return Some(driver.to_string());
             }
         }
-        None
+        read_trimmed(&path)
+    }
+
+    fn advertises_mjpg(&self, class_dir: &Path) -> bool {
+        ["formats", "format", "device/formats", "device/format"]
+            .into_iter()
+            .filter_map(|rel| read_trimmed(&class_dir.join(rel)))
+            .next()
+            .is_none_or(|formats| advertises_mjpg_text(&formats))
     }
 
     fn scan_video(&self) -> Vec<(PathBuf, Option<(u16, u16)>)> {
         let base = self.root.join("sys/class/video4linux");
-        let mut found = Vec::new();
+        let mut found: Vec<VideoCandidate> = Vec::new();
         let Ok(entries) = std::fs::read_dir(&base) else {
-            return found;
+            return Vec::new();
         };
         let mut dirs: Vec<_> = entries.flatten().map(|e| e.path()).collect();
         dirs.sort();
         for dir in dirs {
             let name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if !name.starts_with("video") {
+            let Some(index) = video_node_index(name) else {
+                continue;
+            };
+
+            let modaliases = self.modaliases(&dir);
+            let driver = self.driver_name(&dir);
+            if is_virtio_video(driver.as_deref(), &modaliases)
+                || !is_uvcvideo_driver(driver.as_deref())
+            {
                 continue;
             }
-            let card = std::fs::read_to_string(dir.join("name"))
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            let ids = self.usb_ids(&dir);
+
+            let card = read_trimmed(&dir.join("name")).unwrap_or_default();
+            let ids = modaliases
+                .iter()
+                .find_map(|modalias| parse_usb_modalias(modalias));
             let is_openterface =
                 card.contains("Openterface") || ids.is_some_and(|(v, p)| is_video_device(v, p));
-            if is_openterface {
-                found.push((PathBuf::from(format!("/dev/{name}")), ids));
+            if is_openterface && self.advertises_mjpg(&dir) {
+                found.push(VideoCandidate {
+                    index,
+                    path: PathBuf::from(format!("/dev/{name}")),
+                    ids,
+                });
             }
         }
+        found.sort_by_key(|candidate| candidate.index);
         found
+            .into_iter()
+            .map(|candidate| (candidate.path, candidate.ids))
+            .collect()
     }
 
     fn scan_serial(&self) -> Vec<(PathBuf, (u16, u16))> {
@@ -159,6 +231,19 @@ impl SysfsScanner {
         // ttyACM* sorts before ttyUSB* lexically, matching the kvm-debug
         // preference for ACM nodes.
         found
+    }
+
+    /// All detected Openterface capture node paths (for `scan` enumeration).
+    #[must_use]
+    pub fn video_nodes(&self) -> Vec<PathBuf> {
+        self.scan_video().into_iter().map(|(p, _)| p).collect()
+    }
+
+    /// All detected Openterface serial nodes with their USB (vendor, product)
+    /// IDs (for `scan` enumeration).
+    #[must_use]
+    pub fn serial_nodes(&self) -> Vec<(PathBuf, (u16, u16))> {
+        self.scan_serial()
     }
 }
 
@@ -216,27 +301,68 @@ mod tests {
         std::fs::write(path, contents).unwrap();
     }
 
-    /// Builds a fixture /sys tree under a unique temp dir and returns its root.
     fn fixture_root(tag: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!("otrs-disco-{tag}-{}", std::process::id()));
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target/discovery-fixtures")
+            .join(format!("{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        // Real Openterface video node (uvcvideo + MJPG capture).
-        write(
-            &root.join("sys/class/video4linux/video2/name"),
-            "Openterface\n",
-        );
-        write(
-            &root.join("sys/class/video4linux/video2/device/modalias"),
-            "usb:v345Fp2109d0100dc00",
-        );
-        // Decoy: a virtio-media decoder node that must be skipped.
-        write(
-            &root.join("sys/class/video4linux/video0/name"),
-            "virtio-media\n",
-        );
-        write(
-            &root.join("sys/class/video4linux/video0/device/modalias"),
+        root
+    }
+
+    fn write_video_node(
+        root: &Path,
+        name: &str,
+        card: &str,
+        driver: &str,
+        modalias: &str,
+        formats: Option<&str>,
+    ) {
+        let base = root.join("sys/class/video4linux").join(name);
+        write(&base.join("name"), card);
+        write(&base.join("device/driver"), driver);
+        write(&base.join("device/modalias"), modalias);
+        if let Some(formats) = formats {
+            write(&base.join("formats"), formats);
+        }
+    }
+
+    fn openterface_fixture_root(tag: &str) -> PathBuf {
+        let root = fixture_root(tag);
+        // Decoy: a virtio-media node that matches the card name but must be skipped.
+        write_video_node(
+            &root,
+            "video0",
+            "Openterface virtio decoy\n",
+            "virtio-video\n",
             "virtio:d00000021v00001AF4",
+            Some("MJPG\n"),
+        );
+        // Real Openterface video node (uvcvideo + MJPG capture).
+        write_video_node(
+            &root,
+            "video2",
+            "Openterface\n",
+            "uvcvideo\n",
+            "usb:v345Fp2109d0100dc00",
+            Some("MJPG\nYUYV\n"),
+        );
+        // Sibling metadata node for the same USB device; it does not advertise MJPG.
+        write_video_node(
+            &root,
+            "video3",
+            "Openterface metadata\n",
+            "uvcvideo\n",
+            "usb:v345Fp2109d0100dc00",
+            Some("META\n"),
+        );
+        // Higher capture node for the same device; the lower capture index wins.
+        write_video_node(
+            &root,
+            "video4",
+            "Openterface alternate capture\n",
+            "uvcvideo\n",
+            "usb:v345Fp2109d0100dc00",
+            Some("MJPG\n"),
         );
         // CH9329 serial node.
         write(
@@ -252,8 +378,8 @@ mod tests {
     }
 
     #[test]
-    fn finds_openterface_and_skips_decoys() {
-        let root = fixture_root("find");
+    fn finds_openterface_and_skips_video_decoys() {
+        let root = openterface_fixture_root("find");
         let scanner = SysfsScanner::with_root(&root);
         let devices = scanner.scan().unwrap();
         assert_eq!(devices.len(), 1);
@@ -267,10 +393,40 @@ mod tests {
     }
 
     #[test]
+    fn prefers_lowest_numeric_video_index() {
+        let root = fixture_root("lowest");
+        write_video_node(
+            &root,
+            "video10",
+            "Openterface high index\n",
+            "uvcvideo\n",
+            "usb:v345Fp2109d0100dc00",
+            Some("MJPG\n"),
+        );
+        write_video_node(
+            &root,
+            "video2",
+            "Openterface low index\n",
+            "uvcvideo\n",
+            "usb:v345Fp2109d0100dc00",
+            Some("MJPG\n"),
+        );
+
+        let scanner = SysfsScanner::with_root(&root);
+        let devices = scanner.scan().unwrap();
+        assert_eq!(devices.len(), 1);
+        assert_eq!(
+            devices[0].video_path.as_deref(),
+            Some(Path::new("/dev/video2"))
+        );
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
     fn empty_tree_yields_nothing() {
-        let root = std::env::temp_dir().join(format!("otrs-disco-empty-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root = fixture_root("empty");
         std::fs::create_dir_all(root.join("sys/class/tty")).unwrap();
+        std::fs::create_dir_all(root.join("sys/class/video4linux")).unwrap();
         let scanner = SysfsScanner::with_root(&root);
         assert!(scanner.scan().unwrap().is_empty());
         std::fs::remove_dir_all(&root).unwrap();

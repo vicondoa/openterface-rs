@@ -14,8 +14,10 @@ use openterface_core::protocol::hid::modifier_bit;
 use openterface_core::session::Session;
 use openterface_core::video::Frame;
 use winit::application::ApplicationHandler;
+use winit::dpi::LogicalSize;
 use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::platform::wayland::WindowAttributesExtWayland;
 use winit::window::{Window, WindowId};
 
 use crate::coord::window_to_abs;
@@ -33,6 +35,8 @@ pub struct RunConfig {
     pub fullscreen: bool,
     /// Window title.
     pub title: String,
+    /// Log each forwarded input event (`connect --debug`).
+    pub debug: bool,
 }
 
 /// Runs the display loop until the window is closed. Wayland-only.
@@ -58,6 +62,9 @@ struct App {
     /// left/right modifiers (incl. AltGr) are preserved layout-independently.
     mod_byte: Modifiers,
     start: Instant,
+    /// A window resize whose GPU surface reconfigure is deferred to the next
+    /// redraw, off the event-dispatch path (C++ resize-off-input-thread parity).
+    pending_resize: Option<(u32, u32)>,
 }
 
 impl App {
@@ -68,6 +75,7 @@ impl App {
             throttle: FrameThrottle::new(ThrottleConfig::from_env()),
             mod_byte: Modifiers::NONE,
             start: Instant::now(),
+            pending_resize: None,
         }
     }
 
@@ -78,6 +86,10 @@ impl App {
     /// Forwards an input event to the session, if one is attached (no-op in
     /// dummy mode).
     fn send(&self, event: InputEvent) {
+        if self.cfg.debug {
+            // `--debug`: log each forwarded input event (C++ setDebugMode).
+            tracing::info!(?event, "input");
+        }
         if let Some(s) = &self.cfg.session {
             s.send_input(event);
         }
@@ -133,7 +145,20 @@ impl ApplicationHandler for App {
         if self.gpu.is_some() {
             return;
         }
-        let mut attrs = Window::default_attributes().with_title(self.cfg.title.clone());
+        let mut attrs = Window::default_attributes()
+            .with_title(self.cfg.title.clone())
+            // Wayland app-id (window rules / taskbar grouping) — C++ parity.
+            .with_name("openterface-rs", "openterface-rs")
+            // Minimum sensible window size (C++ uses 640x480).
+            .with_min_inner_size(LogicalSize::new(640.0, 480.0));
+        // OPENTERFACE_USE_LIBDECOR=0 selects the bare xdg-shell window (no
+        // client-side decorations); the default uses libdecor CSD (winit draws
+        // a title bar on CSD-only compositors like niri).
+        let use_libdecor = std::env::var("OPENTERFACE_USE_LIBDECOR")
+            .ok()
+            .map(|v| !matches!(v.trim(), "0" | "false" | "no" | "off"))
+            .unwrap_or(true);
+        attrs = attrs.with_decorations(use_libdecor);
         if self.cfg.fullscreen {
             attrs = attrs.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
         }
@@ -198,12 +223,13 @@ impl ApplicationHandler for App {
                 el.exit();
             }
             WindowEvent::Resized(size) => {
-                // Resize the GPU surface here (render thread), never on the input
-                // path, so input dispatch is never blocked.
-                if let Some(gpu) = self.gpu.as_mut() {
-                    gpu.config.width = size.width.max(1);
-                    gpu.config.height = size.height.max(1);
-                    gpu.surface.configure(gpu.renderer.device(), &gpu.config);
+                // Defer the GPU surface reconfigure to the next redraw, off the
+                // event-dispatch path, so a burst of resize events coalesces and
+                // input is never blocked by GPU work (C++ resize-off-input-thread
+                // parity).
+                self.pending_resize = Some((size.width.max(1), size.height.max(1)));
+                if let Some(gpu) = self.gpu.as_ref() {
+                    gpu.window.request_redraw();
                 }
             }
             WindowEvent::Focused(false) => {
@@ -266,6 +292,14 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::RedrawRequested => {
+                // Apply any deferred resize before drawing (off the input path).
+                if let Some((w, h)) = self.pending_resize.take() {
+                    if let Some(gpu) = self.gpu.as_mut() {
+                        gpu.config.width = w;
+                        gpu.config.height = h;
+                        gpu.surface.configure(gpu.renderer.device(), &gpu.config);
+                    }
+                }
                 if let Some(gpu) = self.gpu.as_mut() {
                     if let Ok(surface_tex) = gpu.surface.get_current_texture() {
                         let view = surface_tex

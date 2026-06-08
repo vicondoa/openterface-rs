@@ -128,6 +128,22 @@ pub fn keyboard_release() -> Vec<u8> {
     keyboard(Modifiers::NONE, &[])
 }
 
+/// Builds the sequence of CH9329 keyboard frames that "types" `text`: for each
+/// mappable character, a key-press report (with any needed modifier) followed
+/// by an all-keys-released report. Unmappable characters are skipped. This is
+/// the C++ `Serial::sendText` behavior.
+#[must_use]
+pub fn text_to_reports(text: &str) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
+    for ch in text.chars() {
+        if let Some((mods, usage)) = crate::protocol::hid::ascii_to_hid(ch) {
+            out.push(keyboard(mods, &[usage]));
+            out.push(keyboard_release());
+        }
+    }
+    out
+}
+
 /// Builds the `GET_INFO` query.
 #[must_use]
 pub fn get_info() -> Vec<u8> {
@@ -263,6 +279,25 @@ mod tests {
                 0x57, 0xAB, 0x00, 0x02, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C
             ]
         );
+    }
+
+    #[test]
+    fn text_to_reports_types_press_release_per_char() {
+        // "Ab1" -> shift+a, release, b, release, 1, release.
+        let r = text_to_reports("Ab1");
+        assert_eq!(r.len(), 6);
+        assert_eq!(r[0], keyboard(Modifiers::LEFT_SHIFT, &[HidUsage(0x04)])); // 'A'
+        assert_eq!(r[1], keyboard_release());
+        assert_eq!(r[2], keyboard(Modifiers::NONE, &[HidUsage(0x05)])); // 'b'
+        assert_eq!(r[3], keyboard_release());
+        assert_eq!(r[4], keyboard(Modifiers::NONE, &[HidUsage(0x1E)])); // '1'
+        assert_eq!(r[5], keyboard_release());
+    }
+
+    #[test]
+    fn text_to_reports_skips_unmappable() {
+        // A control char with no HID mapping is skipped.
+        assert!(text_to_reports("\u{0}").is_empty());
     }
 
     #[test]

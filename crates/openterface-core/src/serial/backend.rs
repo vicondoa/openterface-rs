@@ -57,4 +57,10 @@ impl SerialTransport for SerialPortTransport {
             .set_baud_rate(baud)
             .map_err(|e| Error::Transport(format!("set_baud_rate({baud}): {e}")))
     }
+
+    fn set_rts(&mut self, level: bool) -> Result<()> {
+        self.port
+            .write_request_to_send(level)
+            .map_err(|e| Error::Transport(format!("set_rts({level}): {e}")))
+    }
 }

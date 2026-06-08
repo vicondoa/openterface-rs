@@ -67,6 +67,73 @@ impl Default for CaptureConfig {
     }
 }
 
+/// A V4L2 format/resolution candidate without frame-rate policy.
+#[cfg(any(test, feature = "video-backend"))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct CaptureFormatCandidate {
+    /// Frame width in pixels.
+    pub(crate) width: u32,
+    /// Frame height in pixels.
+    pub(crate) height: u32,
+    /// Desired pixel format.
+    pub(crate) format: PixelFormat,
+}
+
+#[cfg(any(test, feature = "video-backend"))]
+impl CaptureFormatCandidate {
+    /// Creates a candidate from its V4L2 format fields.
+    pub(crate) const fn new(width: u32, height: u32, format: PixelFormat) -> Self {
+        Self {
+            width,
+            height,
+            format,
+        }
+    }
+}
+
+#[cfg(any(test, feature = "video-backend"))]
+impl From<CaptureConfig> for CaptureFormatCandidate {
+    fn from(config: CaptureConfig) -> Self {
+        Self::new(config.width, config.height, config.format)
+    }
+}
+
+/// Documented V4L2 fallback chain from the C++ reference implementation.
+#[cfg(any(test, feature = "video-backend"))]
+pub(crate) const V4L2_FALLBACK_FORMATS: [CaptureFormatCandidate; 3] = [
+    CaptureFormatCandidate::new(1920, 1080, PixelFormat::Mjpeg),
+    CaptureFormatCandidate::new(1280, 720, PixelFormat::Mjpeg),
+    CaptureFormatCandidate::new(1280, 720, PixelFormat::Yuyv),
+];
+
+/// Returns the requested format followed by the documented V4L2 fallbacks.
+#[cfg(any(test, feature = "video-backend"))]
+#[must_use]
+pub(crate) fn v4l2_format_candidates(requested: CaptureConfig) -> Vec<CaptureFormatCandidate> {
+    let requested = CaptureFormatCandidate::from(requested);
+    let mut candidates = Vec::with_capacity(V4L2_FALLBACK_FORMATS.len() + 1);
+    candidates.push(requested);
+    candidates.extend(
+        V4L2_FALLBACK_FORMATS
+            .iter()
+            .copied()
+            .filter(|candidate| *candidate != requested),
+    );
+    candidates
+}
+
+/// Converts a V4L2 frame interval fraction (seconds per frame) to integer Hz.
+#[cfg(any(test, feature = "video-backend"))]
+#[must_use]
+pub(crate) fn integer_fps_from_interval(numerator: u32, denominator: u32) -> Option<u32> {
+    if numerator == 0 || denominator == 0 {
+        return None;
+    }
+
+    let rounded = (u64::from(denominator) + u64::from(numerator) / 2) / u64::from(numerator);
+    u32::try_from(rounded).ok().filter(|fps| *fps > 0)
+}
+
 /// A capability descriptor advertised by a [`VideoSource`].
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct FormatDesc {
@@ -130,4 +197,45 @@ pub trait VideoSource: Send {
 
     /// Blocks for the next frame, up to `timeout`.
     fn next_frame(&mut self, timeout: Duration) -> Result<Frame>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn v4l2_candidates_try_request_before_documented_fallbacks() {
+        let requested = CaptureConfig {
+            width: 640,
+            height: 480,
+            fps: 15,
+            format: PixelFormat::Yuyv,
+        };
+
+        assert_eq!(
+            v4l2_format_candidates(requested),
+            vec![
+                CaptureFormatCandidate::new(640, 480, PixelFormat::Yuyv),
+                CaptureFormatCandidate::new(1920, 1080, PixelFormat::Mjpeg),
+                CaptureFormatCandidate::new(1280, 720, PixelFormat::Mjpeg),
+                CaptureFormatCandidate::new(1280, 720, PixelFormat::Yuyv),
+            ]
+        );
+    }
+
+    #[test]
+    fn v4l2_candidates_do_not_repeat_request_when_it_is_a_fallback() {
+        assert_eq!(
+            v4l2_format_candidates(CaptureConfig::default()),
+            V4L2_FALLBACK_FORMATS.to_vec()
+        );
+    }
+
+    #[test]
+    fn integer_fps_from_interval_rounds_ntsc_rates() {
+        assert_eq!(integer_fps_from_interval(1, 30), Some(30));
+        assert_eq!(integer_fps_from_interval(1001, 30_000), Some(30));
+        assert_eq!(integer_fps_from_interval(0, 30), None);
+        assert_eq!(integer_fps_from_interval(1, 0), None);
+    }
 }

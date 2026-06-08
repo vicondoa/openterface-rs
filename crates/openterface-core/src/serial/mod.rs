@@ -39,6 +39,13 @@ pub trait SerialTransport: Send {
 
     /// Reconfigures the line baud rate (used by the open-time fallback).
     fn set_baud_rate(&mut self, baud: u32) -> Result<()>;
+
+    /// Sets the RTS (Request-To-Send) modem control line. Used by the CH9329
+    /// factory-reset sequence (RTS pulse). Defaults to a no-op so test doubles
+    /// and the PTY need not implement it; the real serial backend overrides it.
+    fn set_rts(&mut self, _level: bool) -> Result<()> {
+        Ok(())
+    }
 }
 
 impl SerialTransport for Box<dyn SerialTransport> {
@@ -50,6 +57,9 @@ impl SerialTransport for Box<dyn SerialTransport> {
     }
     fn set_baud_rate(&mut self, baud: u32) -> Result<()> {
         (**self).set_baud_rate(baud)
+    }
+    fn set_rts(&mut self, level: bool) -> Result<()> {
+        (**self).set_rts(level)
     }
 }
 
@@ -103,6 +113,45 @@ fn probe_get_info<T: SerialTransport>(transport: &mut T, timeout: Duration) -> R
     Ok(ch9329::parse_response(&buf[..n]).is_some())
 }
 
+/// RTS hold time for a CH9329 factory reset (the C++ pulses RTS high ~4 s).
+pub const FACTORY_RESET_RTS_HOLD: Duration = Duration::from_secs(4);
+
+/// Settle time after releasing RTS before the software reset (C++ ~500 ms).
+pub const FACTORY_RESET_SETTLE: Duration = Duration::from_millis(500);
+
+/// Sends the CH9329 software/HID reset command (`CMD 0x0F`) on `transport`.
+///
+/// This is the lightweight "reset HID" operation (C++ `Serial::resetHID`): it
+/// re-initializes the chip's HID state without the RTS power-cycle.
+pub fn reset_hid<T: SerialTransport>(transport: &mut T) -> Result<()> {
+    transport.write_all(&ch9329::software_reset())
+}
+
+/// Performs a CH9329 **factory reset**: pulses RTS high for `rts_hold`, releases
+/// it, waits `settle`, then issues a software reset so the chip re-initializes
+/// (C++ `factoryReset`). The `sleep` function is injected so callers in tests
+/// can run without real delays; production passes [`std::thread::sleep`].
+///
+/// Use [`FACTORY_RESET_RTS_HOLD`] / [`FACTORY_RESET_SETTLE`] for the standard
+/// durations.
+pub fn factory_reset<T, S>(
+    transport: &mut T,
+    rts_hold: Duration,
+    settle: Duration,
+    mut sleep: S,
+) -> Result<()>
+where
+    T: SerialTransport,
+    S: FnMut(Duration),
+{
+    transport.set_rts(true)?;
+    sleep(rts_hold);
+    transport.set_rts(false)?;
+    sleep(settle);
+    transport.write_all(&ch9329::software_reset())?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -115,6 +164,8 @@ mod tests {
         responsive_bauds: Vec<u32>,
         pending: VecDeque<u8>,
         writes: usize,
+        written: Vec<Vec<u8>>,
+        rts_log: Vec<bool>,
     }
 
     impl ScriptedSerial {
@@ -124,6 +175,8 @@ mod tests {
                 responsive_bauds,
                 pending: VecDeque::new(),
                 writes: 0,
+                written: Vec::new(),
+                rts_log: Vec::new(),
             }
         }
     }
@@ -131,6 +184,7 @@ mod tests {
     impl SerialTransport for ScriptedSerial {
         fn write_all(&mut self, bytes: &[u8]) -> Result<()> {
             self.writes += 1;
+            self.written.push(bytes.to_vec());
             // If the current baud is "responsive" and this is a GET_INFO,
             // queue a valid response for the next read.
             if self.responsive_bauds.contains(&self.baud) && bytes == ch9329::get_info().as_slice()
@@ -151,6 +205,11 @@ mod tests {
 
         fn set_baud_rate(&mut self, baud: u32) -> Result<()> {
             self.baud = baud;
+            Ok(())
+        }
+
+        fn set_rts(&mut self, level: bool) -> Result<()> {
+            self.rts_log.push(level);
             Ok(())
         }
     }
@@ -178,5 +237,29 @@ mod tests {
         let c = connect_with_fallback(&mut s, Duration::from_millis(10)).unwrap();
         assert_eq!(c.baud, BAUD_PRIMARY);
         assert!(!c.target_responsive);
+    }
+
+    #[test]
+    fn reset_hid_sends_software_reset() {
+        let mut s = ScriptedSerial::new(vec![]);
+        reset_hid(&mut s).unwrap();
+        assert_eq!(s.written, vec![ch9329::software_reset()]);
+    }
+
+    #[test]
+    fn factory_reset_pulses_rts_then_resets() {
+        let mut s = ScriptedSerial::new(vec![]);
+        let mut slept: Vec<Duration> = Vec::new();
+        // Inject a recording sleeper so the test does not wait the real ~4.5 s.
+        factory_reset(&mut s, FACTORY_RESET_RTS_HOLD, FACTORY_RESET_SETTLE, |d| {
+            slept.push(d)
+        })
+        .unwrap();
+        // RTS goes high then low.
+        assert_eq!(s.rts_log, vec![true, false]);
+        // It sleeps the hold then the settle.
+        assert_eq!(slept, vec![FACTORY_RESET_RTS_HOLD, FACTORY_RESET_SETTLE]);
+        // And finishes with a software reset.
+        assert_eq!(s.written, vec![ch9329::software_reset()]);
     }
 }

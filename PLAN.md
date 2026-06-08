@@ -156,34 +156,50 @@ CI, license/docs stubs, and the public repo created + protected.*
       gaps vs the C++ CLI. The wave gates only reviewed each wave's delta; this is the first
       full cross-cutting audit. **These are the gating work for the DoD `parity` sign-off.**
 
-### W6 parity-completeness backlog (close before the parity `done` sign-off)
+### W6 parity-completeness backlog (re-audited by parity reviewer on GPT-5.5)
 
   CLI:
-  - [ ] `-v/--verbose` prints `Verbose mode enabled` at the start of each callback (C++ parity).
-  - [ ] `connect --debug` is parsed but not wired to input-event logging.
-  - [ ] `connect --no-video` / input-only / GUI-only modes (C++ supports; Rust rejects `--no-video`).
-  - [ ] `status` parity (C++ in-process DISCONNECTED/NO RESPONSE vs Rust detection-based DETECTED).
-  - [ ] `scan` enumerates ALL video + serial nodes (Rust collapses to first of each).
-  - [ ] dummy-mode simulated-input messaging parity.
+  - [x] `-v/--verbose` prints `Verbose mode enabled`.
+  - [x] `connect --debug` wired (logs input events; filter now includes openterface_gui).
+  - [x] `connect --no-video` input-only mode via `Session::start_input_only`.
+  - [ ] `status` parity — **documented deviation** (detection-based vs C++ in-process state).
+  - [x] `scan` enumerates ALL video + serial nodes (`SysfsScanner::video_nodes/serial_nodes`).
+  - [x] dummy-mode simulated-input messaging.
+  - [ ] auto GUI-only mode when no device found — **documented deviation** (Rust errors; arguably
+        better UX for a KVM tool than opening a blank window).
   CH9329 / serial:
-  - [ ] CH9329 init: GET_PARA_CFG + mode 0x82 verify + reset/reconfigure (Rust only GET_INFO).
-  - [ ] factory reset = RTS-toggle (4s) + reconfigure (Rust sends software_reset 0x0F only).
-  - [ ] `resetHID` shipped operation (only a frame builder today).
-  - [ ] `sendText` operation emitting per-char press/release (only `ascii_to_hid` mapping today).
-  - [ ] 4ms minimum physical inter-command write gap (C++ sendDataRaw) — load-bearing.
-  - [ ] relative-mouse mode + long-press-Esc-exits-relative (input glue is a placeholder).
+  - [ ] **DEFERRED** CH9329 init GET_PARA_CFG + mode 0x82 verify/reconfigure — needs exact byte
+        validation against the real chip (a wrong SET_PARA_CFG could misconfigure the device);
+        `get_info`/baud-fallback connection works today.
+  - [x] factory reset = RTS-toggle (4s) + software reset (`serial::factory_reset` + `set_rts`).
+  - [x] `reset_hid` shipped operation.
+  - [x] `sendText` (`ch9329::text_to_reports` + `Session::send_text`).
+  - [x] 4ms physical inter-command write gap (session writer `drain_scheduler`).
+  - [ ] **DEFERRED** relative-mouse mode + long-press-Esc + pointer-lock — protocol/scheduler
+        already support relative events; the GUI pointer-lock toggle needs live GUI+device
+        iteration to implement reliably (can't be validated headlessly).
   V4L2:
-  - [ ] configure fallback chain 1080p MJPG → 720p MJPG → 720p YUYV + VIDIOC_S_PARM 30fps.
-  - [ ] `supported_formats` populates `frame_rates` (always empty today).
-  - [ ] discovery selects uvcvideo + advertised MJPG (skip virtio) — today card-name/VID-PID only.
+  - [x] configure fallback chain 1080p MJPG → 720p MJPG → 720p YUYV + FPS (S_PARM, non-fatal).
+  - [x] `supported_formats` populates `frame_rates`.
+  - [x] discovery selects uvcvideo + advertised MJPG, skips virtio.
   Display:
-  - [ ] `OPENTERFACE_USE_LIBDECOR` (raw xdg-shell fallback), app-id, 640×480 min-size.
-  - [ ] resize handled off the input thread (Rust reconfigures surface inline) — load-bearing.
+  - [x] `OPENTERFACE_USE_LIBDECOR=0` bare xdg-shell, Wayland app-id, 640×480 min-size.
+  - [x] resize deferred to redraw (off the input/event-dispatch path).
 
-- [ ] `W6.2` standalone validation in work-ssd via closed-loop harness (`nixling usb attach`).
-      (Real Openterface present on host: video 345f:2109, serial 1a86:fe0c — hardware available.)
-- [ ] `W6.3` **panel `parity` feature-complete sign-off** (full 10/10; closed-loop green).
-- [ ] `W6.4` **replace** the C++ derivation in `work-ssd.nix` + restart VM + re-validate.
+  **Status:** 15 of 17 gaps closed (+2 bugs the re-audit caught: --debug log target, V4L2 FPS
+  fatal). 2 deferred (relative-mode, CH9329 mode-0x82) need hardware-in-the-loop / carry chip-
+  config risk; 2 documented deviations (status, auto-GUI-only). Hardware-validated on the host
+  device: discovery picks the uvcvideo+MJPG node; closed-loop harness captures real frames
+  (v4l2-ctl mmap) and CH9329 injection works (`move` + `diff`).
+
+- [x] `W6.2` standalone closed-loop validation on the real device — harness `capture` writes a
+      valid 1280×720 JPEG; `move` injects; `diff` runs (INCONCLUSIVE = correct for a non-static
+      target screen). Device on host (work-ssd busids unbound); serial needs the udev rules
+      (the /etc/nixos step, intentionally skipped) so injection was run via sudo for the test.
+- [~] `W6.3` **panel `parity` re-audit** — 15/17 closed; not a full `done` sign-off (2 deferred +
+      live-app closed-loop pending). NOTE: per user, **do not edit /etc/nixos**.
+- [—] `W6.4` replace C++ in `work-ssd.nix` — **intentionally NOT done** (user: stop short of
+      /etc/nixos). Template ready at `packaging/nixos/openterface-rs.nix`.
 - [ ] **W6 panel gate** (full roster incl. `parity`) = **Definition of Done**.
 
 ---

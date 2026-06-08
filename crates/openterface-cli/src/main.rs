@@ -8,7 +8,7 @@ use tracing_subscriber::EnvFilter;
 
 fn main() -> std::process::ExitCode {
     let cli = cli::Cli::parse();
-    init_tracing(cli.verbose);
+    init_tracing(cli.wants_verbose_logging());
     cli.run().into()
 }
 
@@ -18,7 +18,7 @@ fn init_tracing(verbose: bool) {
     let default = if verbose { "debug" } else { "warn" };
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
         EnvFilter::new(format!(
-            "openterface_rs={default},openterface_core={default}"
+            "openterface_rs={default},openterface_core={default},openterface_gui={default}"
         ))
     });
     let _ = tracing_subscriber::fmt()

@@ -6,34 +6,46 @@
 
 use std::path::Path;
 
-use openterface_core::discovery::{DeviceInfo, DeviceScanner, SysfsScanner};
+use openterface_core::discovery::{DeviceScanner, SysfsScanner};
 
 use crate::cli::{ConnectArgs, ExitCode, ResetArgs};
 
-/// `scan` — enumerate Openterface devices.
-pub(crate) fn scan(verbose: bool) -> ExitCode {
+/// `scan` — enumerate Openterface devices (all matching video + serial nodes).
+pub(crate) fn scan(_verbose: bool) -> ExitCode {
     println!("Scanning for Openterface USB KVM devices...");
-    let devices = match SysfsScanner::new().scan() {
-        Ok(d) => d,
-        Err(e) => {
-            eprintln!("scan failed: {e}");
-            return ExitCode::Failure;
+    let scanner = SysfsScanner::new();
+    let videos = scanner.video_nodes();
+    let serials = scanner.serial_nodes();
+
+    println!("\n=== Video Devices ===");
+    if videos.is_empty() {
+        println!("(none found)");
+    } else {
+        for v in &videos {
+            println!("Found: {}", v.display());
         }
-    };
-    if devices.is_empty() {
-        println!("No Openterface devices detected.");
+    }
+
+    println!("\n=== Serial Devices ===");
+    if serials.is_empty() {
+        println!("(none found)");
+    } else {
+        for (s, (vid, pid)) in &serials {
+            println!("Found: {} (VID:PID {vid:04x}:{pid:04x})", s.display());
+        }
+    }
+
+    if videos.is_empty() && serials.is_empty() {
+        println!("\nNo Openterface devices detected.");
         println!("Ensure the device is plugged in and recognized by the system.");
         println!("Or use: openterface-rs connect --dummy");
         return ExitCode::Success;
     }
-    for dev in &devices {
-        print_device(dev, verbose);
-    }
-    if let Some(dev) = devices.iter().find(|d| d.is_complete()) {
+    if let (Some(v), Some((s, _))) = (videos.first(), serials.first()) {
         println!(
             "\nRecommended: openterface-rs connect --video={} --serial={}",
-            display_path(dev.video_path.as_deref()),
-            display_path(dev.serial_path.as_deref()),
+            v.display(),
+            s.display(),
         );
     }
     ExitCode::Success
@@ -67,28 +79,6 @@ pub(crate) fn status(_verbose: bool) -> ExitCode {
         }
     );
     ExitCode::Success
-}
-
-fn print_device(dev: &DeviceInfo, verbose: bool) {
-    println!("Found: {}", dev.description);
-    if let Some(v) = &dev.video_path {
-        println!("  video:  {}", v.display());
-    }
-    if let Some(s) = &dev.serial_path {
-        let ids = match (dev.serial_vendor_id, dev.serial_product_id) {
-            (Some(v), Some(p)) => format!(" (VID:PID {v:04x}:{p:04x})"),
-            _ => String::new(),
-        };
-        println!("  serial: {}{}", s.display(), ids);
-    }
-    if verbose && !dev.is_complete() {
-        println!("  (incomplete: only one endpoint detected)");
-    }
-}
-
-fn display_path(p: Option<&Path>) -> String {
-    p.map(|p| p.display().to_string())
-        .unwrap_or_else(|| "<none>".to_string())
 }
 
 /// `reset` — factory-reset the CH9329. Requires `--serial`; needs `hardware`.
@@ -133,7 +123,9 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
 #[cfg(feature = "hardware")]
 fn reset_impl(serial: &Path) -> ExitCode {
     use openterface_core::serial::backend::SerialPortTransport;
-    use openterface_core::serial::{connect_with_fallback, SerialTransport};
+    use openterface_core::serial::{
+        connect_with_fallback, factory_reset, FACTORY_RESET_RTS_HOLD, FACTORY_RESET_SETTLE,
+    };
     use std::time::Duration;
 
     let path = serial.to_string_lossy();
@@ -153,13 +145,19 @@ fn reset_impl(serial: &Path) -> ExitCode {
         eprintln!("Failed to negotiate with CH9329: {e}");
         return ExitCode::Failure;
     }
-    // Software reset/reconfigure. (The hardware RTS-toggle sequence is validated
-    // on the work-ssd VM in W6.)
-    if let Err(e) = transport.write_all(&openterface_core::protocol::ch9329::software_reset()) {
-        eprintln!("Reset command failed: {e}");
+    // Hardware factory reset: pulse RTS high ~4s, release, settle, then software
+    // reset (C++ parity). This blocks for ~4.5s.
+    println!("Pulsing RTS for factory reset (~4s)...");
+    if let Err(e) = factory_reset(
+        &mut transport,
+        FACTORY_RESET_RTS_HOLD,
+        FACTORY_RESET_SETTLE,
+        std::thread::sleep,
+    ) {
+        eprintln!("Factory reset failed: {e}");
         return ExitCode::Failure;
     }
-    println!("Factory reset command sent.");
+    println!("Factory reset complete.");
     ExitCode::Success
 }
 
@@ -178,12 +176,20 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
 
     // Dummy mode: open the window with a test pattern, no devices.
     if args.dummy {
-        println!("Starting in dummy mode (no device connection).");
+        println!("Starting Openterface KVM in dummy mode...");
+        println!("No device connections will be made.");
+        println!("- Running in dummy mode (no device connections)");
+        println!("- Video will show test pattern");
+        println!("- Input will be simulated (not forwarded)");
+        if args.debug {
+            println!("Debug mode enabled - input events will be logged");
+        }
         let cfg = RunConfig {
             session: None,
             frames: None,
             fullscreen,
             title: "Openterface KVM (dummy)".to_string(),
+            debug: args.debug,
         };
         return match run(cfg) {
             Ok(()) => ExitCode::Success,
@@ -207,28 +213,12 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
         .or_else(|| dev.and_then(|d| d.serial_path.clone()));
 
     if args.no_video {
-        eprintln!("--no-video: a display session requires video; nothing to show.");
-        return ExitCode::Failure;
-    }
-    let Some(video_path) = video_path else {
-        eprintln!("No Openterface capture device found. Try: openterface-rs scan");
-        return ExitCode::Failure;
-    };
-
-    let mut video = match V4l2Source::open(&video_path.to_string_lossy()) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("Failed to open video device {}: {e}", video_path.display());
-            return ExitCode::Failure;
-        }
-    };
-    if let Err(e) = video.configure(CaptureConfig::default()) {
-        eprintln!("Failed to configure capture: {e}");
-        return ExitCode::Failure;
+        println!("- Video disabled by --no-video flag");
     }
 
-    // Serial is optional (input forwarding); without it we still show video.
+    // Build the serial transport first (shared by the video and no-video paths).
     let serial: Box<dyn openterface_core::serial::SerialTransport> = if args.no_serial {
+        println!("- Serial disabled by --no-serial flag");
         Box::new(NullSerial)
     } else if let Some(sp) = &serial_path {
         match SerialPortTransport::open(&sp.to_string_lossy()) {
@@ -254,6 +244,53 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
         Box::new(NullSerial)
     };
 
+    // --no-video: an input-only session with a blank window for input capture
+    // (C++ parity: the GUI still forwards keyboard/mouse, no video is shown).
+    if args.no_video {
+        let session = match Session::start_input_only(serial, PacingConfig::from_env()) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Failed to start session: {e}");
+                return ExitCode::Failure;
+            }
+        };
+        if args.debug {
+            println!("Debug mode enabled - input events will be logged");
+        }
+        let cfg = RunConfig {
+            session: Some(session),
+            frames: None,
+            fullscreen,
+            title: "Openterface KVM (no video)".to_string(),
+            debug: args.debug,
+        };
+        return match run(cfg) {
+            Ok(()) => ExitCode::Success,
+            Err(e) => {
+                eprintln!("display error: {e}");
+                ExitCode::Failure
+            }
+        };
+    }
+
+    // Video path: a capture device is required.
+    let Some(video_path) = video_path else {
+        eprintln!("No Openterface capture device found. Try: openterface-rs scan");
+        return ExitCode::Failure;
+    };
+
+    let mut video = match V4l2Source::open(&video_path.to_string_lossy()) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Failed to open video device {}: {e}", video_path.display());
+            return ExitCode::Failure;
+        }
+    };
+    if let Err(e) = video.configure(CaptureConfig::default()) {
+        eprintln!("Failed to configure capture: {e}");
+        return ExitCode::Failure;
+    }
+
     let (frame_tx, frame_rx) = std::sync::mpsc::sync_channel(4);
     let session = match Session::start(
         serial,
@@ -274,7 +311,11 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
         frames: Some(frame_rx),
         fullscreen,
         title: "Openterface KVM".to_string(),
+        debug: args.debug,
     };
+    if args.debug {
+        println!("Debug mode enabled - input events will be logged");
+    }
     match run(cfg) {
         Ok(()) => ExitCode::Success,
         Err(e) => {

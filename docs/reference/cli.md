@@ -31,18 +31,13 @@ openterface-rs connect [--video PATH] [--serial PATH]
 | `--video PATH` | Capture device path. Auto-detected if omitted. |
 | `--serial PATH` | CH9329 serial path. Auto-detected if omitted. |
 | `--no-serial` | Show video only; do not forward input. |
-| `--no-video` | Input-only / headless. **See parity note below.** |
+| `--no-video` | Input-only / headless: forward keyboard/mouse with a blank window, no video. |
 | `--dummy` | No device; GUI with a test pattern (development/CI). |
 | `--debug` | Log each forwarded input event. |
 
 A display session needs the `hardware` feature (see
 [build](../how-to/build.md)); a binary built without it can still run `scan`
 and `status`.
-
-> **Parity note (`--no-video`).** The C++ CLI accepts `--no-video` to run an
-> input-only session. openterface-rs currently **rejects** `--no-video` because
-> its session is display-driven; this is a known deviation tracked for the
-> feature-complete (parity) gate. Use `--no-serial` for a video-only session.
 
 > **Parity note (exit codes).** Unlike the C++ CLI (which exits `0` even on
 > runtime failure), openterface-rs exits **`1`** when a device is not found, a

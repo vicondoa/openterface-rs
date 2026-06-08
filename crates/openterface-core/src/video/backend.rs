@@ -9,13 +9,15 @@ use std::time::Duration;
 
 use v4l::buffer::Type;
 use v4l::format::{Colorspace, Quantization};
+use v4l::frameinterval::FrameIntervalEnum;
 use v4l::io::mmap::Stream;
 use v4l::io::traits::CaptureStream;
 use v4l::video::Capture;
-use v4l::{Device, Format, FourCC};
+use v4l::{Device, Format, FourCC, Fraction, FrameInterval};
 
 use crate::video::{
-    CaptureConfig, ColorRange, ColorSpace, FormatDesc, Frame, PixelFormat, VideoSource,
+    integer_fps_from_interval, v4l2_format_candidates, CaptureConfig, CaptureFormatCandidate,
+    ColorRange, ColorSpace, FormatDesc, Frame, PixelFormat, VideoSource,
 };
 use crate::{Error, Result};
 
@@ -64,6 +66,42 @@ fn map_range(q: Quantization, format: PixelFormat) -> ColorRange {
     }
 }
 
+fn format_for_candidate(base: Format, candidate: CaptureFormatCandidate) -> Format {
+    let mut fmt = base;
+    fmt.width = candidate.width;
+    fmt.height = candidate.height;
+    fmt.fourcc = fourcc(candidate.format);
+    fmt
+}
+
+fn format_matches_candidate(applied: &Format, candidate: CaptureFormatCandidate) -> bool {
+    applied.width == candidate.width
+        && applied.height == candidate.height
+        && pixel_format(&applied.fourcc.repr) == Some(candidate.format)
+}
+
+fn push_frame_rate(rates: &mut Vec<u32>, interval: Fraction) {
+    if let Some(fps) = integer_fps_from_interval(interval.numerator, interval.denominator) {
+        if !rates.contains(&fps) {
+            rates.push(fps);
+        }
+    }
+}
+
+fn frame_rates_from_intervals(intervals: Vec<FrameInterval>) -> Vec<u32> {
+    let mut rates = Vec::new();
+    for interval in intervals {
+        match interval.interval {
+            FrameIntervalEnum::Discrete(interval) => push_frame_rate(&mut rates, interval),
+            FrameIntervalEnum::Stepwise(stepwise) => {
+                push_frame_rate(&mut rates, stepwise.min);
+                push_frame_rate(&mut rates, stepwise.max);
+            }
+        }
+    }
+    rates
+}
+
 /// A [`VideoSource`] backed by a real V4L2 device (e.g. `/dev/video2`).
 ///
 /// Field order matters: `stream` is declared before `device` so it is dropped
@@ -105,11 +143,18 @@ impl VideoSource for V4l2Source {
                 .map_err(|e| Error::Video(format!("enum_framesizes: {e}")))?;
             for size in sizes {
                 for discrete in size.size.to_discrete() {
+                    let intervals = Capture::enum_frameintervals(
+                        &*self.device,
+                        desc.fourcc,
+                        discrete.width,
+                        discrete.height,
+                    )
+                    .map_err(|e| Error::Video(format!("enum_frameintervals: {e}")))?;
                     out.push(FormatDesc {
                         format,
                         width: discrete.width,
                         height: discrete.height,
-                        frame_rates: Vec::new(),
+                        frame_rates: frame_rates_from_intervals(intervals),
                     });
                 }
             }
@@ -118,24 +163,54 @@ impl VideoSource for V4l2Source {
     }
 
     fn configure(&mut self, config: CaptureConfig) -> Result<()> {
-        let mut fmt =
+        let current =
             Capture::format(&*self.device).map_err(|e| Error::Video(format!("get format: {e}")))?;
-        fmt.width = config.width;
-        fmt.height = config.height;
-        fmt.fourcc = fourcc(config.format);
-        let applied = Capture::set_format(&*self.device, &fmt)
-            .map_err(|e| Error::Video(format!("set format: {e}")))?;
-        let format = pixel_format(&applied.fourcc.repr).ok_or_else(|| {
+        let mut attempts = Vec::new();
+        let mut selected = None;
+
+        for candidate in v4l2_format_candidates(config) {
+            let fmt = format_for_candidate(current, candidate);
+            match Capture::set_format(&*self.device, &fmt) {
+                Ok(applied) if format_matches_candidate(&applied, candidate) => {
+                    selected = Some((candidate, applied));
+                    break;
+                }
+                Ok(applied) => attempts.push(format!(
+                    "{}x{} {:?}: driver adjusted to {}x{} {:?}",
+                    candidate.width,
+                    candidate.height,
+                    candidate.format,
+                    applied.width,
+                    applied.height,
+                    pixel_format(&applied.fourcc.repr)
+                )),
+                Err(e) => attempts.push(format!(
+                    "{}x{} {:?}: {e}",
+                    candidate.width, candidate.height, candidate.format
+                )),
+            }
+        }
+
+        let (candidate, applied) = selected.ok_or_else(|| {
             Error::Video(format!(
-                "device chose unsupported fourcc {:?}",
-                applied.fourcc
+                "set format failed for all V4L2 candidates: {}",
+                attempts.join("; ")
             ))
         })?;
+        let fps = match self.set_frame_rate(config.fps) {
+            Ok(applied_fps) => applied_fps,
+            Err(e) => {
+                // C++ parity: VIDIOC_S_PARM failure is a warning, not fatal —
+                // some devices accept the format but reject frame-rate setting.
+                tracing::warn!("could not set {}fps ({e}); continuing", config.fps);
+                config.fps
+            }
+        };
         self.active = Some(CaptureConfig {
             width: applied.width,
             height: applied.height,
-            fps: config.fps,
-            format,
+            fps,
+            format: candidate.format,
         });
         self.applied = Some(applied);
         Ok(())
@@ -227,6 +302,25 @@ impl VideoSource for V4l2Source {
 }
 
 impl V4l2Source {
+    fn set_frame_rate(&self, fps: u32) -> Result<u32> {
+        if fps == 0 {
+            return Err(Error::Video("fps must be greater than zero".to_string()));
+        }
+
+        let mut params = Capture::params(&*self.device)
+            .map_err(|e| Error::Video(format!("get stream parameters: {e}")))?;
+        params.interval = Fraction::new(1, fps);
+        let applied = Capture::set_params(&*self.device, &params)
+            .map_err(|e| Error::Video(format!("set frame rate {fps}fps: {e}")))?;
+        integer_fps_from_interval(applied.interval.numerator, applied.interval.denominator)
+            .ok_or_else(|| {
+                Error::Video(format!(
+                    "device returned invalid frame interval {}/{}",
+                    applied.interval.numerator, applied.interval.denominator
+                ))
+            })
+    }
+
     /// Creates an mmap capture stream borrowing the boxed device.
     fn make_stream(&self) -> Result<Stream<'static>> {
         let stream = Stream::with_buffers(&self.device, Type::VideoCapture, 4)

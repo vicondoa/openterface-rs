@@ -23,7 +23,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::event::{HidUsage, InputEvent, Modifiers, MouseButton};
-use crate::pacing::{PacingConfig, PacingScheduler};
+use crate::pacing::{PacingConfig, PacingScheduler, DEFAULT_COMMAND_GAP};
 use crate::serial::SerialTransport;
 use crate::video::{CaptureConfig, Frame, VideoSource};
 use crate::Result;
@@ -96,6 +96,27 @@ impl Session {
         })
     }
 
+    /// Starts an **input-only** session: the paced serial writer thread with no
+    /// video capture. Used by `connect --no-video` for serial/input-only
+    /// forwarding (the GUI still provides input; no frames are shown).
+    pub fn start_input_only<T>(mut serial: T, pacing: PacingConfig) -> Result<Session>
+    where
+        T: SerialTransport + 'static,
+    {
+        let running = Arc::new(AtomicBool::new(true));
+        let (input_tx, input_rx) = std::sync::mpsc::channel::<InputEvent>();
+        let writer = std::thread::Builder::new()
+            .name("openterface-serial".into())
+            .spawn(move || writer_loop(&mut serial, &input_rx, pacing))
+            .map_err(crate::Error::Io)?;
+        Ok(Session {
+            input_tx: Some(input_tx),
+            running,
+            writer: Some(writer),
+            capture: None,
+        })
+    }
+
     /// Forwards an input event to the target (non-blocking).
     pub fn send_input(&self, event: InputEvent) {
         if let Some(tx) = &self.input_tx {
@@ -130,6 +151,27 @@ impl Session {
             modifiers: Modifiers::NONE,
             pressed: false,
         });
+    }
+
+    /// Types `text` on the target by submitting key press/release events through
+    /// the paced input path (manual text injection; C++ `Serial::sendText`
+    /// parity). Unmappable characters are skipped; each character is a press
+    /// (with any needed modifier) followed by an all-keys-released report.
+    pub fn send_text(&self, text: &str) {
+        for ch in text.chars() {
+            if let Some((mods, usage)) = crate::protocol::hid::ascii_to_hid(ch) {
+                self.send_input(InputEvent::Key {
+                    usage,
+                    modifiers: mods,
+                    pressed: true,
+                });
+                self.send_input(InputEvent::Key {
+                    usage,
+                    modifiers: Modifiers::NONE,
+                    pressed: false,
+                });
+            }
+        }
     }
 
     /// Clicks a mouse button (press then release) at the current position.
@@ -181,6 +223,8 @@ fn writer_loop<T: SerialTransport>(
     pacing: PacingConfig,
 ) {
     let mut scheduler = PacingScheduler::new(pacing);
+    // Physical inter-command spacing (CH9329 buffer safety; C++ sendDataRaw).
+    let mut last_write: Option<Instant> = None;
     loop {
         // Wait until the scheduler next has work, or a new event arrives.
         let wait = scheduler
@@ -200,21 +244,37 @@ fn writer_loop<T: SerialTransport>(
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }
-        // Emit everything that is ready now.
-        while let Some(cmd) = scheduler.poll(Instant::now()) {
-            if serial.write_all(&cmd).is_err() {
-                // A serial write error is treated as a fatal session condition.
-                return;
-            }
+        // Emit everything that is ready now (spaced by the command gap).
+        if drain_scheduler(serial, &mut scheduler, &mut last_write).is_err() {
+            return;
         }
     }
     // Final drain so a trailing release (always a priority command, hence ready)
     // is never lost on a clean shutdown.
+    let _ = drain_scheduler(serial, &mut scheduler, &mut last_write);
+}
+
+/// Writes every command the scheduler has ready, enforcing the minimum physical
+/// gap between consecutive CH9329 writes. Returns `Err` on a serial write error.
+fn drain_scheduler<T: SerialTransport>(
+    serial: &mut T,
+    scheduler: &mut PacingScheduler,
+    last_write: &mut Option<Instant>,
+) -> std::result::Result<(), ()> {
     while let Some(cmd) = scheduler.poll(Instant::now()) {
-        if serial.write_all(&cmd).is_err() {
-            return;
+        if let Some(last) = *last_write {
+            let elapsed = last.elapsed();
+            if elapsed < DEFAULT_COMMAND_GAP {
+                std::thread::sleep(DEFAULT_COMMAND_GAP - elapsed);
+            }
         }
+        if serial.write_all(&cmd).is_err() {
+            // A serial write error is treated as a fatal session condition.
+            return Err(());
+        }
+        *last_write = Some(Instant::now());
     }
+    Ok(())
 }
 
 /// Capture loop: pull frames and forward them (bounded, lossy) until shutdown.
@@ -306,6 +366,24 @@ mod tests {
             std::thread::sleep(Duration::from_millis(2));
         }
         pred()
+    }
+
+    #[test]
+    fn input_only_session_forwards_without_video() {
+        // `--no-video`: a serial-only session forwards input with no capture.
+        let sink = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let serial = VecSerial(std::sync::Arc::clone(&sink));
+        let mut session = Session::start_input_only(serial, PacingConfig::default()).unwrap();
+        session.send_text("a");
+        let press = ch9329::keyboard(Modifiers::NONE, &[HidUsage(0x04)]);
+        assert!(
+            wait_until(
+                || ordered_subslices(&sink.lock().unwrap(), &[&press]),
+                Duration::from_secs(1)
+            ),
+            "the 'a' key report should reach the serial sink"
+        );
+        session.shutdown();
     }
 
     #[test]
