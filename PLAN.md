@@ -17,7 +17,8 @@
    `cargo clippy --all-targets -- -D warnings`, `cargo test` (and `nextest`
    once wired).
 
-**Current status:** `W3 — Integration` **complete** (panel 5/5). Next: `W4 —
+**Current status:** `W4 — Frontends` — CLI + winit/wgpu display landed (95 hardware-free
+tests; headless GPU render verified on lavapipe). W4 work-review panel gate in progress.
 Frontends` (CLI binary ∥ winit/wgpu display).
 (71 hardware-free tests). W3 work-review panel gate in progress.
 Integration` (pacing scheduler, session orchestration, vertical slice).
@@ -125,8 +126,8 @@ CI, license/docs stubs, and the public repo created + protected.*
 
 ## W4 — Frontends (fan-out ×2)
 
-- [ ] `W4.1` CLI binary (connect/scan/status/reset + dummy + tracing + assert_cmd/trycmd).
-- [ ] `W4.2` display (winit/wgpu + window input capture + niri CSD + all `OPENTERFACE_*`
+- [x] `W4.1` CLI binary (scan/status/reset/connect + tracing + 10 assert_cmd tests; hardware feature).
+- [x] `W4.2` winit/wgpu display + input capture + idle-decode throttle (headless render passes on lavapipe).
       tunables + idle-decode throttle + headless render test).
 - [ ] **W4 panel gate** (rust, input, video, product, test).
 
