@@ -41,12 +41,21 @@ pub(crate) fn scan(_verbose: bool) -> ExitCode {
         println!("Or use: openterface-rs connect --dummy");
         return ExitCode::Success;
     }
-    if let (Some(v), Some((s, _))) = (videos.first(), serials.first()) {
-        println!(
+    match (videos.first(), serials.first()) {
+        (Some(v), Some((s, _))) => println!(
             "\nRecommended: openterface-rs connect --video={} --serial={}",
             v.display(),
             s.display(),
-        );
+        ),
+        (Some(v), None) => println!(
+            "\nRecommended (no serial found): openterface-rs connect --video={} --no-serial",
+            v.display(),
+        ),
+        (None, Some((s, _))) => println!(
+            "\nRecommended (no capture found): openterface-rs connect --no-video --serial={}",
+            s.display(),
+        ),
+        (None, None) => unreachable!("guarded above"),
     }
     ExitCode::Success
 }
@@ -146,8 +155,8 @@ fn reset_impl(serial: &Path) -> ExitCode {
         return ExitCode::Failure;
     }
     // Hardware factory reset: pulse RTS high ~4s, release, settle, then software
-    // reset (C++ parity). This blocks for ~4.5s.
-    println!("Pulsing RTS for factory reset (~4s)...");
+    // reconfigure to mode 0x82 / 115200 (C++ parity). This blocks for ~6s.
+    println!("Performing factory reset (RTS pulse + reconfigure, ~6s)...");
     if let Err(e) = factory_reset(
         &mut transport,
         FACTORY_RESET_RTS_HOLD,
@@ -157,7 +166,7 @@ fn reset_impl(serial: &Path) -> ExitCode {
         eprintln!("Factory reset failed: {e}");
         return ExitCode::Failure;
     }
-    println!("Factory reset complete.");
+    println!("Factory reset complete (chip reconfigured to mode 0x82 / 115200).");
     ExitCode::Success
 }
 

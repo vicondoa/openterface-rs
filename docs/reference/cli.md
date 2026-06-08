@@ -31,9 +31,9 @@ openterface-rs connect [--video PATH] [--serial PATH]
 | `--video PATH` | Capture device path. Auto-detected if omitted. |
 | `--serial PATH` | CH9329 serial path. Auto-detected if omitted. |
 | `--no-serial` | Show video only; do not forward input. |
-| `--no-video` | Input-only / headless: forward keyboard/mouse with a blank window, no video. |
+| `--no-video` | Input-only / headless: forward keyboard/mouse with a window showing a static test pattern (no target video). |
 | `--dummy` | No device; GUI with a test pattern (development/CI). |
-| `--debug` | Log each forwarded input event. |
+| `--debug` | Log each forwarded input event (keyboard events are redacted — no key identity is logged). |
 
 A display session needs the `hardware` feature (see
 [build](../how-to/build.md)); a binary built without it can still run `scan`
@@ -43,6 +43,11 @@ and `status`.
 > runtime failure), openterface-rs exits **`1`** when a device is not found, a
 > connection fails, or a reset fails — silently exiting `0` on failure is a
 > scripting footgun. Usage errors exit `2`; `--help`/`--version` exit `0`.
+
+> **Parity note (no device).** The C++ CLI opens a "GUI-only" window when no
+> device is found; openterface-rs instead **errors** (exit `1`) with a hint to
+> run `scan` — a clearer signal for a KVM tool than a blank window. Use
+> `connect --dummy` for a deviceless window.
 
 ## `scan`
 
@@ -67,7 +72,9 @@ openterface-rs status
 
 ## `reset`
 
-CH9329 factory reset.
+CH9329 **factory reset**: pulses the RTS line high for ~4 s (hardware reset),
+then reconfigures the chip to mode `0x82` / 115200 baud (software reconfigure).
+The command **blocks for ~6 s**.
 
 ```
 openterface-rs reset --serial PATH

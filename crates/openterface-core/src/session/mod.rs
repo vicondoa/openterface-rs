@@ -226,17 +226,21 @@ fn writer_loop<T: SerialTransport>(
     // Physical inter-command spacing (CH9329 buffer safety; C++ sendDataRaw).
     let mut last_write: Option<Instant> = None;
     loop {
-        // Wait until the scheduler next has work, or a new event arrives.
-        let wait = scheduler
-            .time_until_ready(Instant::now())
-            .unwrap_or(TICK)
-            .min(TICK);
+        let now = Instant::now();
+        // Time until the scheduler next has work, lower-bounded by the physical
+        // command gap so two writes are never < gap apart. Waiting *here* (before
+        // popping a command) means a key/button release arriving during the gap
+        // is submitted and re-prioritized before the next poll — so it still
+        // jumps ahead of a pending paced move.
+        let wait = match scheduler.time_until_ready(now) {
+            None => TICK,
+            Some(ready_in) => ready_in.max(gap_remaining(last_write, now)).min(TICK),
+        };
         match input_rx.recv_timeout(wait) {
             Ok(event) => {
                 scheduler.submit(event);
                 // Drain the rest of the currently-queued batch so coalescing and
-                // release-priority apply across the whole available batch (a
-                // release sitting behind a move in the channel still jumps ahead).
+                // release-priority apply across the whole available batch.
                 while let Ok(ev) = input_rx.try_recv() {
                     scheduler.submit(ev);
                 }
@@ -244,37 +248,45 @@ fn writer_loop<T: SerialTransport>(
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }
-        // Emit everything that is ready now (spaced by the command gap).
-        if drain_scheduler(serial, &mut scheduler, &mut last_write).is_err() {
-            return;
+        // Emit at most ONE command, and only once the gap has elapsed, then loop
+        // so the next iteration re-drains the channel before the next poll.
+        let now = Instant::now();
+        if gap_remaining(last_write, now).is_zero() {
+            if let Some(cmd) = scheduler.poll(now) {
+                if serial.write_all(&cmd).is_err() {
+                    return; // a serial write error is a fatal session condition
+                }
+                last_write = Some(Instant::now());
+            }
         }
     }
-    // Final drain so a trailing release (always a priority command, hence ready)
-    // is never lost on a clean shutdown.
-    let _ = drain_scheduler(serial, &mut scheduler, &mut last_write);
-}
-
-/// Writes every command the scheduler has ready, enforcing the minimum physical
-/// gap between consecutive CH9329 writes. Returns `Err` on a serial write error.
-fn drain_scheduler<T: SerialTransport>(
-    serial: &mut T,
-    scheduler: &mut PacingScheduler,
-    last_write: &mut Option<Instant>,
-) -> std::result::Result<(), ()> {
-    while let Some(cmd) = scheduler.poll(Instant::now()) {
-        if let Some(last) = *last_write {
+    // Final drain on shutdown: flush every ready (priority) command — crucially
+    // every release — honoring the gap, so trailing input is never lost.
+    loop {
+        if let Some(last) = last_write {
             let elapsed = last.elapsed();
             if elapsed < DEFAULT_COMMAND_GAP {
                 std::thread::sleep(DEFAULT_COMMAND_GAP - elapsed);
             }
         }
-        if serial.write_all(&cmd).is_err() {
-            // A serial write error is treated as a fatal session condition.
-            return Err(());
+        match scheduler.poll(Instant::now()) {
+            Some(cmd) => {
+                if serial.write_all(&cmd).is_err() {
+                    return;
+                }
+                last_write = Some(Instant::now());
+            }
+            None => break,
         }
-        *last_write = Some(Instant::now());
     }
-    Ok(())
+}
+
+/// Time remaining before another CH9329 write is allowed (ZERO if ready now).
+fn gap_remaining(last_write: Option<Instant>, now: Instant) -> Duration {
+    match last_write {
+        None => Duration::ZERO,
+        Some(last) => DEFAULT_COMMAND_GAP.saturating_sub(now.saturating_duration_since(last)),
+    }
 }
 
 /// Capture loop: pull frames and forward them (bounded, lossy) until shutdown.

@@ -168,13 +168,16 @@ CI, license/docs stubs, and the public repo created + protected.*
   - [ ] auto GUI-only mode when no device found — **documented deviation** (Rust errors; arguably
         better UX for a KVM tool than opening a blank window).
   CH9329 / serial:
-  - [ ] **DEFERRED** CH9329 init GET_PARA_CFG + mode 0x82 verify/reconfigure — needs exact byte
-        validation against the real chip (a wrong SET_PARA_CFG could misconfigure the device);
-        `get_info`/baud-fallback connection works today.
-  - [x] factory reset = RTS-toggle (4s) + software reset (`serial::factory_reset` + `set_rts`).
+  - [~] CH9329 mode 0x82 reconfigure — **SET_PARA_CFG (mode 0x82 / 115200) now implemented**
+        (`ch9329::set_para_cfg` + `serial::reset_chip`) and wired into the factory reset (exact C++
+        bytes, golden-tested). **DEFERRED:** the connect-time `GET_PARA_CFG` verify-and-reconfigure
+        (read the chip's mode on connect and fix it) — `get_info`/baud-fallback connection works today.
+  - [x] factory reset = RTS pulse (4s) + 1s + full `reset_chip` reconfigure to mode 0x82
+        (`serial::factory_reset` + `set_rts` + `set_para_cfg`, matching C++ `factoryReset`).
   - [x] `reset_hid` shipped operation.
   - [x] `sendText` (`ch9329::text_to_reports` + `Session::send_text`).
-  - [x] 4ms physical inter-command write gap (session writer `drain_scheduler`).
+  - [x] 4ms physical inter-command write gap (session writer; gap enforced *before* poll so a
+        release arriving during the gap still jumps ahead of a pending move).
   - [ ] **DEFERRED** relative-mouse mode + long-press-Esc + pointer-lock — protocol/scheduler
         already support relative events; the GUI pointer-lock toggle needs live GUI+device
         iteration to implement reliably (can't be validated headlessly).
@@ -186,10 +189,13 @@ CI, license/docs stubs, and the public repo created + protected.*
   - [x] `OPENTERFACE_USE_LIBDECOR=0` bare xdg-shell, Wayland app-id, 640×480 min-size.
   - [x] resize deferred to redraw (off the input/event-dispatch path).
 
-  **Status:** 15 of 17 gaps closed (+2 bugs the re-audit caught: --debug log target, V4L2 FPS
-  fatal). 2 deferred (relative-mode, CH9329 mode-0x82) need hardware-in-the-loop / carry chip-
-  config risk; 2 documented deviations (status, auto-GUI-only). Hardware-validated on the host
-  device: discovery picks the uvcvideo+MJPG node; closed-loop harness captures real frames
+  **Status:** 15 fully closed + CH9329 mode-0x82 reconfigure now done (only the connect-time
+  GET_PARA_CFG verify deferred). Remaining: relative-mouse mode (deferred, hardware-GUI), the
+  connect-time mode verify (deferred). Documented deviations: detection-based `status`, no
+  auto-GUI-only. The W6 panel (10 reviewers, GPT-5.5) drove these fixes: input 4ms-gap ordering,
+  full factory-reset reconfigure, --debug keystroke redaction, scan partial-detection hints, docs.
+  Hardware-validated on the host device: discovery picks the uvcvideo+MJPG node; closed-loop harness
+  captures real frames
   (v4l2-ctl mmap) and CH9329 injection works (`move` + `diff`).
 
 - [x] `W6.2` standalone closed-loop validation on the real device — harness `capture` writes a

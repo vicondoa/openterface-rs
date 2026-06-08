@@ -32,8 +32,31 @@ pub mod cmd {
     pub const MOUSE_ABS: u8 = 0x04;
     /// Relative mouse move/buttons.
     pub const MOUSE_REL: u8 = 0x05;
+    /// Query parameter config (`GET_PARA_CFG`).
+    pub const GET_PARA_CFG: u8 = 0x08;
+    /// Set parameter config (`SET_PARA_CFG`).
+    pub const SET_PARA_CFG: u8 = 0x09;
     /// Software reset.
     pub const RESET: u8 = 0x0F;
+}
+
+/// The 50-byte `SET_PARA_CFG` payload that restores the CH9329 to **mode 0x82**
+/// (protocol-transfer USB keyboard+mouse) at **115200 baud** — copied verbatim
+/// from the C++ `resetChip` reconfiguration so the bytes are known-good for this
+/// hardware.
+const PARA_CFG_MODE_82: [u8; 50] = [
+    0x82, 0x80, 0x00, 0x00, 0x00, 0x01, 0xC2, 0x00, 0x08, 0x00, 0x00, 0x03, 0x86, 0x1A, 0x29, 0xE1,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00,
+];
+
+/// Builds the `SET_PARA_CFG` command (`CMD 0x09`) that restores the CH9329 to
+/// mode 0x82 (USB keyboard+mouse) at 115200 baud, matching the C++ reset
+/// reconfiguration.
+#[must_use]
+pub fn set_para_cfg() -> Vec<u8> {
+    frame(cmd::SET_PARA_CFG, &PARA_CFG_MODE_82)
 }
 
 /// Computes the CH9329 checksum: the low byte of the additive sum of `bytes`.
@@ -298,6 +321,17 @@ mod tests {
     fn text_to_reports_skips_unmappable() {
         // A control char with no HID mapping is skipped.
         assert!(text_to_reports("\u{0}").is_empty());
+    }
+
+    #[test]
+    fn set_para_cfg_is_mode_82_115200() {
+        let f = set_para_cfg();
+        assert_eq!(f.len(), 5 + 50 + 1);
+        assert_eq!(&f[0..5], &[0x57, 0xAB, 0x00, 0x09, 0x32]);
+        assert_eq!(f[5], 0x82); // working mode byte
+        assert_eq!(&f[9..13], &[0x00, 0x01, 0xC2, 0x00]); // 115200 baud region
+        let sum = checksum(&f[..f.len() - 1]);
+        assert_eq!(*f.last().unwrap(), sum);
     }
 
     #[test]

@@ -14,8 +14,9 @@ keyboard/mouse over one USB cable).
 
 ### Added
 - **CLI** (`openterface-rs`): `connect` (with `--video`/`--serial`/`--no-serial`/
-  `--dummy`/`--debug`), `scan`, `status`, and `reset --serial`, with
-  `-v/--verbose`, `--version`, and `RUST_LOG` logging.
+  `--no-video` (input-only)/`--dummy`/`--debug`), `scan` (enumerates all video +
+  serial nodes), `status`, and `reset --serial` (RTS factory reset +
+  reconfigure), with `-v/--verbose`, `--version`, and `RUST_LOG` logging.
 - **CH9329 input**: framed command builders (absolute/relative mouse, keyboard +
   modifiers, Ctrl+Alt+Del, software/factory reset) with golden-vector tests;
   baud fallback (115200 → 9600); tolerant of `GET_INFO`-silent firmware.
@@ -50,6 +51,8 @@ keyboard/mouse over one USB cable).
 ### Known deviations from the C++ CLI
 - Runtime failures exit **`1`** (not the C++ `0`); usage errors exit `2`.
 - `status` is detection-based rather than in-process connection state.
+- No auto "GUI-only" window when no device is found: `connect` errors instead
+  (use `--dummy` for a deviceless window).
 - `OPENTERFACE_USE_LIBDECOR=0` falls back to a bare xdg-shell window; full
   CSD/SSD negotiation parity beyond that is best-effort under winit.
 
