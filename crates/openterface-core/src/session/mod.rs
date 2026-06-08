@@ -23,7 +23,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::event::{HidUsage, InputEvent, Modifiers, MouseButton};
-use crate::pacing::{PacingConfig, PacingScheduler};
+use crate::pacing::{PacingConfig, PacingScheduler, DEFAULT_COMMAND_GAP};
 use crate::serial::SerialTransport;
 use crate::video::{CaptureConfig, Frame, VideoSource};
 use crate::Result;
@@ -181,6 +181,8 @@ fn writer_loop<T: SerialTransport>(
     pacing: PacingConfig,
 ) {
     let mut scheduler = PacingScheduler::new(pacing);
+    // Physical inter-command spacing (CH9329 buffer safety; C++ sendDataRaw).
+    let mut last_write: Option<Instant> = None;
     loop {
         // Wait until the scheduler next has work, or a new event arrives.
         let wait = scheduler
@@ -200,21 +202,37 @@ fn writer_loop<T: SerialTransport>(
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }
-        // Emit everything that is ready now.
-        while let Some(cmd) = scheduler.poll(Instant::now()) {
-            if serial.write_all(&cmd).is_err() {
-                // A serial write error is treated as a fatal session condition.
-                return;
-            }
+        // Emit everything that is ready now (spaced by the command gap).
+        if drain_scheduler(serial, &mut scheduler, &mut last_write).is_err() {
+            return;
         }
     }
     // Final drain so a trailing release (always a priority command, hence ready)
     // is never lost on a clean shutdown.
+    let _ = drain_scheduler(serial, &mut scheduler, &mut last_write);
+}
+
+/// Writes every command the scheduler has ready, enforcing the minimum physical
+/// gap between consecutive CH9329 writes. Returns `Err` on a serial write error.
+fn drain_scheduler<T: SerialTransport>(
+    serial: &mut T,
+    scheduler: &mut PacingScheduler,
+    last_write: &mut Option<Instant>,
+) -> std::result::Result<(), ()> {
     while let Some(cmd) = scheduler.poll(Instant::now()) {
-        if serial.write_all(&cmd).is_err() {
-            return;
+        if let Some(last) = *last_write {
+            let elapsed = last.elapsed();
+            if elapsed < DEFAULT_COMMAND_GAP {
+                std::thread::sleep(DEFAULT_COMMAND_GAP - elapsed);
+            }
         }
+        if serial.write_all(&cmd).is_err() {
+            // A serial write error is treated as a fatal session condition.
+            return Err(());
+        }
+        *last_write = Some(Instant::now());
     }
+    Ok(())
 }
 
 /// Capture loop: pull frames and forward them (bounded, lossy) until shutdown.
