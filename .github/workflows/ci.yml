@@ -65,11 +65,23 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            mesa-vulkan-drivers vulkan-tools \
+            mesa-vulkan-drivers vulkan-tools libvulkan1 \
             libwayland-dev libxkbcommon-dev
+      - name: Locate lavapipe ICD and verify it loads
+        run: |
+          set -x
+          ls -la /usr/share/vulkan/icd.d/ || true
+          dpkg -L mesa-vulkan-drivers | grep -iE 'icd|lvp|libvulkan_lvp' || true
+          LVP="$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1)"
+          if [ -z "$LVP" ]; then
+            echo "::error::No lavapipe ICD found under /usr/share/vulkan/icd.d/"
+            exit 1
+          fi
+          echo "VK_ICD_FILENAMES=$LVP" >> "$GITHUB_ENV"
+          # Diagnostic only: confirm the loader can see lavapipe.
+          VK_ICD_FILENAMES="$LVP" vulkaninfo --summary 2>&1 | head -40 || true
       - name: Headless render test (software adapter)
         env:
-          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
           WGPU_BACKEND: vulkan
           OPENTERFACE_REQUIRE_GPU: "1"
         run: cargo test -p openterface-gui --features gpu-tests --test headless_render -- --nocapture
