@@ -18,6 +18,28 @@ pub enum PixelFormat {
     Yuyv,
 }
 
+/// Color quantization range — required for correct YUYV→RGB conversion.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum ColorRange {
+    /// Studio/limited range (luma 16..=235) — the usual capture default.
+    #[default]
+    Limited,
+    /// Full range (0..=255).
+    Full,
+}
+
+/// Color space / conversion matrix — required for correct YUYV→RGB conversion.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum ColorSpace {
+    /// Unknown / unspecified (decoder picks a sane default by resolution).
+    #[default]
+    Unknown,
+    /// ITU-R BT.601 (standard definition).
+    Bt601,
+    /// ITU-R BT.709 (high definition).
+    Bt709,
+}
+
 /// A requested capture configuration.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct CaptureConfig {
@@ -56,6 +78,12 @@ pub struct FormatDesc {
 }
 
 /// A single captured frame.
+///
+/// `data` holds the *encoded* (MJPEG) or *packed* (YUYV) payload. For v1 the
+/// payload is **owned** (copied out of the V4L2 buffer); a zero-copy/loaned
+/// model is a future optimization. For packed formats, [`Frame::bytes_per_line`]
+/// is the V4L2 stride and [`Frame::color_range`]/[`Frame::color_space`] drive
+/// YUYV→RGB conversion.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Frame {
     /// The format of [`Frame::data`].
@@ -64,6 +92,13 @@ pub struct Frame {
     pub width: u32,
     /// Frame height in pixels.
     pub height: u32,
+    /// Row stride in bytes for packed formats (V4L2 `bytesperline`); `0` for
+    /// encoded formats (MJPEG) where it is not meaningful.
+    pub bytes_per_line: u32,
+    /// Color quantization range (packed formats).
+    pub color_range: ColorRange,
+    /// Color space / matrix (packed formats).
+    pub color_space: ColorSpace,
     /// Monotonic capture timestamp.
     pub timestamp: Duration,
     /// Encoded (MJPEG) or packed (YUYV) bytes.

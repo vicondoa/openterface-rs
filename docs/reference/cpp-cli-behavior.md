@@ -48,6 +48,14 @@ The C++ callbacks do not throw or return status codes for runtime failures. `CLI
 
 Compatibility note: a Rust implementation that returns nonzero for runtime failures would be more conventional but not C++-compatible.
 
+> **openterface-rs decision (intentional divergence):** openterface-rs returns
+> exit code **`1` for runtime failures** (no device found, connection failed,
+> factory reset failed, `reset` missing `--serial`) instead of the C++ `0`,
+> because silently exiting `0` on failure is a footgun for scripting. CLI11
+> parse-error semantics are still matched (`2` for usage errors, `0` for
+> help/version). This is the only deliberate exit-code incompatibility and is
+> reflected in `ExitCode::Failure` in `crates/openterface-cli/src/cli.rs`.
+
 ## Output format
 
 ### Global and construction output
@@ -326,6 +334,26 @@ Press frame before checksum (`src/serial.cpp:581-596`):
 
 Source: `src/serial.cpp:598-606`. `sendCtrlAltDel` sends key `0x4C` with modifiers `0x05` (Ctrl+Alt), then release (`src/serial.cpp:715-724`). `PROGRESS.md` and `TROUBLESHOOTING.md` corroborate the keyboard layout and all-zero release (`PROGRESS.md:65-84`, `TROUBLESHOOTING.md:65-74`).
 
+### Keyboard event translation (GUI → HID), parity-critical
+
+The serial report above is the *wire* format; the GUI is what turns Wayland key
+events into those reports, and openterface-rs must reproduce this translation:
+
+- **Linux evdev scancode → USB HID usage** via a fixed lookup table
+  (`src/gui_input.cpp:27-152`). Forwarding uses the *physical* key (scancode),
+  not the localized keysym, so the target sees the same physical key regardless
+  of host layout.
+- **Modifier keys are skipped as normal key events**: HID usages that are
+  themselves modifiers are not placed in the 6-key report; they only affect the
+  modifier byte (`src/gui_input.cpp:782-789`).
+- **Wayland `mods_depressed` → CH9329 modifier byte**: the depressed-modifier
+  bitmask from `wl_keyboard.modifiers` is translated bit-for-bit into the CH9329
+  modifier byte (Ctrl `0x01`, Shift `0x02`, Alt `0x04`, Meta `0x08`)
+  (`src/gui_input.cpp:791-796`).
+
+W2.2 implements the scancode→HID table and the modifier-bit conversion as the
+"physical-key forwarding" path (separate from the `sendText` path).
+
 ### Absolute mouse report
 
 Move/frame before checksum (`src/serial.cpp:609-641`, `src/serial.cpp:686-698`):
@@ -336,7 +364,7 @@ Move/frame before checksum (`src/serial.cpp:609-641`, `src/serial.cpp:686-698`):
 
 - `CMD=0x04`, `LEN=0x07`, first data byte `0x02` selects absolute mode (`src/serial.cpp:618-625`).
 - Coordinates are little-endian 16-bit values. GUI maps window coordinates to the CH9329 range `0..4095` and clamps (`src/gui.cpp:1633-1644`).
-- Wheel byte is always `0x00` in the implemented send methods (`src/serial.cpp:625`, `src/serial.cpp:697`).
+- Wheel byte is `0x00` in the **move/button** send paths (`src/serial.cpp:625`, `src/serial.cpp:697`). Scroll is forwarded separately: the GUI's vertical scroll handler calls `Input::injectMouseScroll`, which emits a **relative** CH9329 frame with the wheel byte set to `0x01` (up) or `0xFF` (down) (`src/gui_input.cpp:623-635`, `src/input.cpp:408-422`). So the wheel byte is non-zero only on the scroll path.
 - Motion during drag carries the currently held button mask instead of releasing the button (`src/gui.cpp:1646-1651`).
 
 Button mapping: left `0x01`, right `0x02`, middle `0x04`, no button `0x00` (`src/serial.cpp:660-668`, `PROGRESS.md:55-59`, `TROUBLESHOOTING.md:70-72`).
@@ -399,13 +427,15 @@ Resize work is deliberately not done on the Wayland/input event thread. The Wayl
 | Behavior | Rust implementation area | Current/target location |
 |---|---|---|
 | CLI11-equivalent commands/options/help, `--version`, one required subcommand | cli | `openterface-rs/crates/openterface-cli/src/main.rs` |
-| C++-compatible exit codes, including runtime failures returning 0 | cli | `openterface-rs/crates/openterface-cli/src/main.rs` |
+| C++-compatible exit codes, except runtime failures intentionally return `1` (not C++ `0`) | cli | `openterface-rs/crates/openterface-cli/src/cli.rs` |
 | `scan`/`status` text formats and verbose behavior | cli + discovery + serial/video status | `openterface-rs/crates/openterface-cli/src/main.rs`, `crates/openterface-core/src/discovery/mod.rs` |
 | Video discovery: active C++ `cap.card contains Openterface`; documented shipped heuristic `uvcvideo` + `MJPG`, skip virtio | discovery/video | `crates/openterface-core/src/discovery/mod.rs`, `crates/openterface-core/src/video/mod.rs` |
 | Serial discovery: CH341 `PRODUCT=1a86/7523/`, `/dev/ttyUSB*` and `/dev/ttyACM*`; decide ordering ambiguity | discovery/serial | `crates/openterface-core/src/discovery/mod.rs`, `crates/openterface-core/src/serial/mod.rs` |
 | Serial open 115200 then 9600 fallback; GET_PARA_CFG, mode `0x82`, reset/reconfigure, GET_INFO harmless no-response | serial/protocol | `crates/openterface-core/src/serial/mod.rs`, `crates/openterface-core/src/protocol/mod.rs` |
 | CH9329 frame layouts, additive checksum, command write serialization, 4 ms physical gap | protocol/serial | `crates/openterface-core/src/protocol/mod.rs`, `crates/openterface-core/src/serial/mod.rs` |
 | Absolute mouse coordinate scaling/clamping 0..4095, button mask preserved during motion | input/protocol | `crates/openterface-core/src/input/mod.rs`, `crates/openterface-core/src/protocol/mod.rs` |
+| Scroll wheel forwarded as a relative CH9329 frame, wheel byte `0x01`/`0xFF` | input/protocol | `crates/openterface-core/src/input/mod.rs`, `crates/openterface-core/src/protocol/ch9329.rs` |
+| Keyboard: Linux scancode→HID table, modifier-key skip, Wayland `mods_depressed`→CH9329 modifier byte | input/protocol | `crates/openterface-core/src/protocol/hid.rs`, `crates/openterface-core/src/input/mod.rs` |
 | Mouse move pacing: default 33 ms, env validation 5..1000, coalescing latest position | pacing/input/gui | `crates/openterface-core/src/pacing/mod.rs`, `crates/openterface-core/src/input/mod.rs`, `crates/openterface-gui/src/lib.rs` |
 | Idle MJPEG throttling env vars/defaults, raw dedup, decoded compare, watchdog, input wake | gui/video/decode | `crates/openterface-gui/src/lib.rs`, `crates/openterface-core/src/decode/mod.rs`, `crates/openterface-core/src/video/mod.rs` |
 | libdecor default-on, raw xdg fallback, fullscreen env, title/app id/min size | gui | `crates/openterface-gui/src/lib.rs` |

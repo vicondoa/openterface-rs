@@ -36,9 +36,17 @@ impl From<ExitCode> for std::process::ExitCode {
     name = "openterface-rs",
     version,
     about = "Openterface USB KVM CLI — control a target's keyboard, video, and mouse over USB.",
-    propagate_version = true
+    disable_version_flag = true
 )]
 pub(crate) struct Cli {
+    /// Print version.
+    //
+    // Root-only, long-form `--version` (no `-V` short, not propagated to
+    // subcommands) to match the C++ CLI's single `--version` surface. The
+    // version string is openterface-rs's own (not the C++ `1.0.0`).
+    #[arg(long, action = clap::ArgAction::Version)]
+    pub version: Option<bool>,
+
     /// Enable verbose output.
     #[arg(short, long, global = true)]
     pub verbose: bool,
@@ -95,9 +103,10 @@ pub(crate) struct ConnectArgs {
 #[derive(Args, Debug)]
 pub(crate) struct ResetArgs {
     /// Serial device path (required for reset).
-    ///
-    /// Kept optional at the parser level to match the C++ CLI, which validates
-    /// presence in the handler and prints usage; W4.1 wires that behavior.
+    //
+    // Kept optional at the parser level to match the C++ CLI, which validates
+    // presence in the handler and prints usage (wired in W4.1). A `//` comment
+    // (not `///`) so this rationale is not rendered in `--help`.
     #[arg(long, value_name = "PATH")]
     pub serial: Option<PathBuf>,
 }
@@ -166,6 +175,7 @@ mod tests {
             "--serial",
             "/dev/ttyACM0",
             "--no-video",
+            "--no-serial",
             "--dummy",
             "--debug",
         ])
@@ -183,9 +193,20 @@ mod tests {
             Some(std::path::Path::new("/dev/ttyACM0"))
         );
         assert!(args.no_video);
-        assert!(!args.no_serial);
+        assert!(args.no_serial);
         assert!(args.dummy);
         assert!(args.debug);
+    }
+
+    #[test]
+    fn reset_serial_is_optional_at_parse_time() {
+        // Matches the C++ CLI: `--serial` is validated in the handler (W4.1),
+        // not by the parser, so `reset` parses with `serial == None`.
+        let cli = Cli::try_parse_from(["openterface-rs", "reset"]).unwrap();
+        let Command::Reset(args) = cli.command else {
+            panic!("expected reset");
+        };
+        assert!(args.serial.is_none());
     }
 
     #[test]
@@ -208,6 +229,20 @@ mod tests {
     fn version_flag_short_circuits() {
         let err = Cli::try_parse_from(["openterface-rs", "--version"]).unwrap_err();
         assert_eq!(err.kind(), clap::error::ErrorKind::DisplayVersion);
+    }
+
+    #[test]
+    fn no_short_version_alias() {
+        // The C++ CLI exposes only `--version`; `-V` must not be accepted.
+        let err = Cli::try_parse_from(["openterface-rs", "-V"]).unwrap_err();
+        assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument);
+    }
+
+    #[test]
+    fn version_is_not_propagated_to_subcommands() {
+        // C++ subcommands do not accept `--version`; only the root does.
+        let err = Cli::try_parse_from(["openterface-rs", "scan", "--version"]).unwrap_err();
+        assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument);
     }
 
     #[test]

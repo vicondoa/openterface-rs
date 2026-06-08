@@ -20,13 +20,22 @@ W2.3 (decode) and W2.5 (video source) can proceed against synthetic fixtures.
 
 - Use the **`v4l`** crate (Video4Linux2 bindings) behind the
   `video::VideoSource` trait already defined in `openterface-core`.
-- **Negotiation:** enumerate `v4l` formats → match the requested
-  `CaptureConfig` (MJPG/YUYV, w×h, fps); if exact match fails, pick the closest
-  supported and surface it via `active_config()` (the C++ silently re-selects;
-  we make it observable).
-- **Streaming:** MMAP buffers; hand each captured buffer to the pipeline as a
-  `Frame { format, width, height, timestamp, data }` without copying the encoded
-  payload.
+- **Negotiation (deterministic, MJPG-first):** enumerate `v4l` formats, then
+  resolve the requested `CaptureConfig` in this fixed order so the fallback is
+  reproducible (not a generic "closest"):
+  1. exact requested `format` + `width×height` + `fps`;
+  2. requested format, same resolution, nearest supported `fps`;
+  3. **MJPG** fallbacks: `1920×1080@30` → `1280×720@30` → highest MJPG mode;
+  4. **YUYV** fallback (last resort, high bandwidth) at the closest resolution.
+  The chosen mode and the reason for any fallback are surfaced via
+  `active_config()` and logged (the C++ silently re-selects; we make it
+  observable).
+- **Streaming:** MMAP capture buffers. For v1 the encoded/packed payload is
+  **copied** out of the mapped buffer into the owned `Frame::data` (`Vec<u8>`)
+  before the buffer is requeued; zero-copy/loaned frames are a future
+  optimization. Each `Frame` carries `bytes_per_line` (V4L2 `bytesperline`,
+  meaningful for YUYV; `0` for MJPEG) and `color_range`/`color_space` read from
+  the V4L2 format so YUYV→RGBA conversion is correct.
 - **Node selection (W2.6 discovery):** iterate `/dev/video*`, keep only
   `uvcvideo` devices whose `VIDIOC_ENUM_FMT` includes `MJPG`; ignore others.
 

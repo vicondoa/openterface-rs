@@ -5,6 +5,38 @@ skips cleanly when no adapter is present.** The on-screen present path is
 validated for real in W4.2 (on niri) and W6 (work-ssd). This note keeps the
 heavy `wgpu` dependency out of the way of the no-hardware CI guarantee.
 
+## Idle-decode throttle state machine (W4.2 design)
+
+"Upload on change" alone does not throttle the expensive *decode*. The C++ fork
+runs a small state machine (see `cpp-cli-behavior.md` → idle throttling) that
+openterface-rs reproduces:
+
+1. **Raw dedup:** hash/byte-compare the *encoded* MJPEG payload against the last
+   frame; if identical, skip decode **and** upload entirely.
+2. **Non-deterministic MJPEG:** some encoders emit byte-different frames for an
+   unchanged screen. After the raw compare fails, decode and **compare decoded
+   pixels** to the last decoded frame; if equal, skip the upload.
+3. **Idle declaration:** after ~15 consecutive static frames (~0.5 s @ 30 fps),
+   enter idle and cap decode attempts to `OPENTERFACE_IDLE_DECODE_MS` (default
+   100 ms).
+4. **Input wake:** any forwarded input keeps full-rate decode for
+   `OPENTERFACE_INPUT_WAKE_MS` (default 250 ms).
+5. **Anti-freeze watchdog:** force a surface refresh of the cached frame at least
+   every `OPENTERFACE_IDLE_WATCHDOG_MS` (default 1000 ms), no decode required.
+6. **`OPENTERFACE_THROTTLE=0`** disables all of the above (always decode).
+
+This lives in `openterface-gui` (orchestration) using `decode` + `wgpu`; the
+state machine is unit-testable with a fake clock and scripted frame sequences.
+
+## CI: a mandatory software-adapter render job (W4.2)
+
+The feature-gated test self-skips when no adapter is present, which keeps
+generic CI hardware-free — but the render path must actually run *somewhere*.
+W4.2 adds **one CI job (and a devshell path) with a software Vulkan backend**
+(Mesa **lavapipe**, `VK_ICD_FILENAMES` for `lvp`) where the gated test is
+required, so texture upload + offscreen pixel assertions are genuinely
+exercised. Other jobs keep the skip behavior.
+
 ## Render design (W4.2)
 
 The frontend renders a single decoded frame per refresh:
