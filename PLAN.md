@@ -17,9 +17,9 @@
    `cargo clippy --all-targets -- -D warnings`, `cargo test` (and `nextest`
    once wired).
 
-**Current status:** `W5 — Docs / packaging / harness` — plan-review gate PASSED 5/5
-(docs, product, build-ci, security, test on GPT-5.5, after 4 refinement rounds). Implementing.
-W4 Frontends CLOSED (98 hardware-free tests; panel 5/5; merged PR #5).
+**Current status:** `W6 — /etc/nixos integration + work-ssd validation` (Definition of Done) — next.
+W5 Docs/packaging/harness CLOSED (101 hardware-free tests + 2 doctests; panel 10/10 across plan +
+work review on GPT-5.5; merged PR #6). v1.0.0 prepared; tag cut in W6 after hardware validation.
 Frontends` (CLI binary ∥ winit/wgpu display).
 (71 hardware-free tests). W3 work-review panel gate in progress.
 Integration` (pacing scheduler, session orchestration, vertical slice).
@@ -144,8 +144,8 @@ CI, license/docs stubs, and the public repo created + protected.*
       destructive verbs; hardware-free framing-drift test).
 - [x] `W5.4` v1.0.0 prepared (workspace bump 0.0.0→1.0.0, CHANGELOG). Tag/publish
       DEFERRED to end of W6 (after real-hardware validation), per build-ci/docs.
-- [ ] **W5 panel gate** (docs, product, build-ci, security, test). Plan-review
-      PASSED 5/5 after 4 refinement rounds; work-review pending.
+- [x] **W5 panel gate** (docs, product, build-ci, security, test). Plan-review
+      PASSED 5/5 (4 rounds); work-review PASSED 5/5 (after W5fu1).
 
 ## W6 — /etc/nixos integration + work-ssd validation (serial; Definition of Done)
 
@@ -191,3 +191,13 @@ _Append a one-line entry when a wave closes (date, wave, panel result, notes)._
   modifier byte not cleared on focus loss / close, releases not flushed on window-close, idle-decode
   throttle wedging static streams (raw-changed tracking so wake re-decodes don't poison raw-dedup).
   PR #5.
+- **2026-06-08 — W5 Docs / packaging / harness — CLOSED.** Plan-review 5/5 (docs, product, build-ci,
+  security, test on GPT-5.5) after 4 refinement rounds; work-review 5/5 (test ✓ round 1; docs,
+  product, security, build-ci ✓ after `W5fu1`). Diataxis docs tree, expanded ARCHITECTURE, README,
+  CONTRIBUTING, SECURITY; least-privilege udev rules + checksum-verifying install.sh + release.yml
+  (x86_64 + native-arm64) + flake `packages.default`; closed-loop harness (DRYRUN frames +
+  non-destructive move/diff/rate/cpu + fail-closed destructive verbs) + hardware-free framing-drift
+  test; v1.0.0 prep (version bump + CHANGELOG, tag deferred to W6). 101 hardware-free tests + 2
+  doctests. Panel caught real bugs: OPENTERFACE_FULLSCREEN=0 wrongly enabled fullscreen, install.sh
+  sudo-required for user prefix + unverified udev fallback download, SHA256SUMS ./-prefix breaking
+  install.sh checksum match, several doc/code mismatches. PR #6.
