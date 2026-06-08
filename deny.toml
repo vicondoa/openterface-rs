@@ -7,7 +7,9 @@ yanked = "deny"
 [licenses]
 version = 2
 # Allow the permissive licenses common in the Rust ecosystem. The project
-# itself is Apache-2.0.
+# itself is Apache-2.0. MPL-2.0 is allowed for the `serialport` dependency
+# (file-level weak copyleft; using it as an unmodified library dependency does
+# not affect openterface-rs's own Apache-2.0 licensing).
 allow = [
     "Apache-2.0",
     "MIT",
@@ -16,6 +18,7 @@ allow = [
     "ISC",
     "Unicode-3.0",
     "Zlib",
+    "MPL-2.0",
 ]
 confidence-threshold = 0.9
 
