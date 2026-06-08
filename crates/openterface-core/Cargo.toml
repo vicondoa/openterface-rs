@@ -13,9 +13,16 @@ authors.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 zune-jpeg = "0.4"
+serialport = { version = "4", optional = true }
+
+[features]
+# Real OS-backed serial transport (links libudev on Linux for enumeration).
+# Off by default so the no-hardware test build stays light and fast.
+serial-backend = ["dep:serialport"]
 
 [dev-dependencies]
 proptest = "1"
+nix = { version = "0.29", features = ["term", "fs"] }
 
 [lints]
 workspace = true

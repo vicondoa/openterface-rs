@@ -118,6 +118,42 @@ pub fn software_reset() -> Vec<u8> {
     frame(cmd::RESET, &[])
 }
 
+/// A parsed CH9329 response frame.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Response {
+    /// The response command byte (typically the request cmd with bit 7 set).
+    pub cmd: u8,
+    /// The response payload (between length and checksum).
+    pub data: Vec<u8>,
+}
+
+/// Parses and validates a single CH9329 response frame from the start of
+/// `bytes`. Returns the response and the number of bytes consumed, or `None`
+/// if `bytes` does not begin with a complete, checksum-valid frame.
+#[must_use]
+pub fn parse_response(bytes: &[u8]) -> Option<(Response, usize)> {
+    if bytes.len() < 6 || bytes[0..3] != FRAME_PREFIX {
+        return None;
+    }
+    let cmd = bytes[3];
+    let len = bytes[4] as usize;
+    let total = 5 + len + 1;
+    if bytes.len() < total {
+        return None;
+    }
+    let sum = checksum(&bytes[..total - 1]);
+    if sum != bytes[total - 1] {
+        return None;
+    }
+    Some((
+        Response {
+            cmd,
+            data: bytes[5..5 + len].to_vec(),
+        },
+        total,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,6 +256,29 @@ mod tests {
     fn software_reset_frame() {
         let f = software_reset();
         assert_eq!(&f[..5], &[0x57, 0xAB, 0x00, 0x0F, 0x00]);
+    }
+
+    #[test]
+    fn parse_valid_response() {
+        // GET_INFO response: cmd 0x81, 1 data byte.
+        let f = frame(0x81, &[0x42]);
+        let (resp, consumed) = parse_response(&f).unwrap();
+        assert_eq!(resp.cmd, 0x81);
+        assert_eq!(resp.data, vec![0x42]);
+        assert_eq!(consumed, f.len());
+    }
+
+    #[test]
+    fn parse_rejects_bad_checksum_and_partial() {
+        let mut f = frame(0x81, &[0x42]);
+        let n = f.len();
+        f[n - 1] ^= 0xFF; // corrupt checksum
+        assert!(parse_response(&f).is_none());
+        // Truncated frame.
+        let g = frame(0x81, &[0x42]);
+        assert!(parse_response(&g[..g.len() - 1]).is_none());
+        // Wrong prefix.
+        assert!(parse_response(&[0x00, 0x00, 0x00, 0x81, 0x00, 0x81]).is_none());
     }
 
     use proptest::prelude::*;
