@@ -69,6 +69,27 @@ These are not optimizations — the device misbehaves without them:
 The session uses **std threads + channels** (no async runtime): a capture
 thread, a paced serial-writer thread, and the GUI event loop, coordinated by an
 explicit shutdown/cancellation model (shutdown channel, bounded queues, join
-policy, blocking-read timeouts) so stop never deadlocks.
+policy, blocking-read timeouts) so stop never deadlocks. The
+[threading model](docs/explanation/threading-model.md) explains the ownership
+and shutdown rules in full.
 
-See [`PLAN.md`](PLAN.md) for the implementation sequence.
+## Frontends
+
+Two frontends sit on top of the core:
+
+- **`openterface-cli`** — the `openterface-rs` binary (clap). `scan`/`status`
+  are pure-sysfs and work with no features; `connect`/`reset` need the
+  `hardware` feature, which also pulls in the display frontend.
+- **`openterface-gui`** — the native Wayland display (`winit` + `wgpu`). Pure
+  modules (window→absolute coordinate mapping, the idle-decode throttle state
+  machine, winit-key→HID mapping) are always compiled and tested; the actual
+  winit/wgpu window is behind the `display` feature. The throttle implements the
+  load-bearing idle-decode behavior above.
+
+## Testing
+
+Because the hardware seams are traits, the suite runs with no device and no
+system libraries — see [testing & simulation](docs/explanation/testing-and-simulation.md).
+
+See [`PLAN.md`](PLAN.md) for the implementation sequence and
+[`docs/`](docs/README.md) for the full documentation tree.

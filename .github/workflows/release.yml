@@ -1,0 +1,156 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      publish_crates:
+        description: "Also publish crates to crates.io (requires CARGO_REGISTRY_TOKEN)"
+        type: boolean
+        default: false
+
+# Least privilege by default; the publish job opts into contents: write.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # The shipped binary is built explicitly with the hardware feature.
+  BUILD_FLAGS: "-p openterface-cli --release --locked --features hardware"
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm   # native arm64 runner (no cross sysroot)
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Install system libraries (hardware feature)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libudev-dev libv4l-dev \
+            libwayland-dev libxkbcommon-dev libdecor-0-dev \
+            clang libclang-dev
+
+      - name: Build (release, --features hardware)
+        run: cargo build ${{ env.BUILD_FLAGS }}
+
+      - name: Stage tarball
+        id: stage
+        run: |
+          set -eu
+          ver="${GITHUB_REF_NAME}"
+          case "$ver" in v*) : ;; *) ver="dev-${GITHUB_SHA::8}" ;; esac
+          name="openterface-rs-${ver}-${{ matrix.target }}"
+          stagedir="dist/${name}"
+          mkdir -p "$stagedir"
+          install -m 0755 target/release/openterface-rs "$stagedir/openterface-rs"
+          strip "$stagedir/openterface-rs" || true
+          install -m 0644 packaging/udev/60-openterface.rules "$stagedir/"
+          install -m 0755 packaging/install.sh "$stagedir/"
+          install -m 0644 README.md LICENSE CHANGELOG.md "$stagedir/"
+          tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+          ( cd dist && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256" )
+          echo "tarball=dist/${name}.tar.gz" >> "$GITHUB_OUTPUT"
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke-test the packaged binary (hardware-free)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          set -eu
+          # Install into a DESTDIR staging root exactly like a real install, then
+          # run the binary with no hardware and no display.
+          dest="$(mktemp -d)"
+          install -D -m 0755 "dist/${{ steps.stage.outputs.name }}/openterface-rs" \
+            "$dest/usr/local/bin/openterface-rs"
+          bin="$dest/usr/local/bin/openterface-rs"
+          "$bin" --version
+          "$bin" --help
+          "$bin" scan
+          "$bin" status
+          # install.sh must at least parse and accept --help.
+          sh -n packaging/install.sh
+          sh packaging/install.sh --help >/dev/null
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.stage.outputs.name }}
+          path: |
+            dist/${{ steps.stage.outputs.name }}.tar.gz
+            dist/${{ steps.stage.outputs.name }}.tar.gz.sha256
+          if-no-files-found: error
+
+  publish:
+    name: publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write   # only this job can write releases
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Assemble release assets + combined SHA256SUMS
+        run: |
+          set -eu
+          mkdir -p release
+          cp artifacts/*.tar.gz release/
+          cp packaging/install.sh release/
+          cp packaging/udev/60-openterface.rules release/
+          ( cd release && sha256sum ./*.tar.gz > SHA256SUMS )
+          ls -l release
+
+      - name: Create / update the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          ver="${GITHUB_REF_NAME}"
+          notes="Automated release for ${ver}. See CHANGELOG.md. Verify downloads against SHA256SUMS."
+          if gh release view "$ver" >/dev/null 2>&1; then
+            gh release upload "$ver" release/* --clobber
+          else
+            gh release create "$ver" release/* \
+              --title "$ver" --notes "$notes" --verify-tag
+          fi
+
+  crates-io:
+    name: publish to crates.io (manual)
+    # Only when explicitly dispatched with publish_crates=true; never automatic.
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_crates == true
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev libv4l-dev libwayland-dev libxkbcommon-dev clang libclang-dev
+      - name: Publish in dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -eu
+          # Dependency order: core -> test-support -> gui -> cli. Each waits for
+          # the index to settle before the next.
+          for crate in openterface-core openterface-test-support openterface-gui openterface-cli; do
+            cargo publish -p "$crate" --locked
+            sleep 30
+          done

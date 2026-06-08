@@ -8,6 +8,8 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
+keywords = ["kvm", "openterface", "ch9329", "cli", "wayland"]
+categories = ["command-line-utilities", "hardware-support"]
 
 [[bin]]
 name = "openterface-rs"

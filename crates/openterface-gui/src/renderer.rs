@@ -1,7 +1,7 @@
 //! A minimal `wgpu` renderer that draws a single RGBA frame as a full-screen
 //! textured quad (behind `display`).
 //!
-//! [`Renderer::render_offscreen`] supports the headless render test: it draws to
+//! [`Renderer::render_to_buffer`] supports the headless render test: it draws to
 //! an off-screen texture and reads the pixels back, so the GPU pipeline can be
 //! validated without a window (on a software adapter where available).
 

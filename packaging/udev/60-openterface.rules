@@ -1,0 +1,25 @@
+# openterface-rs — udev rules for the Openterface Mini-KVM (least privilege).
+#
+# Two USB endpoints share the cable:
+#   - CH9329 USB-serial HID bridge  (mouse + keyboard injection)  VID 1a86, PID 7523 or fe0c
+#   - MS2109 HDMI capture (UVC/MJPEG video)                       VID 345f (or 534d), PID 2109
+#
+# Access model (in order of preference):
+#   1. TAG+="uaccess" — the user logged in on the local seat gets an ACL
+#      automatically (systemd-logind). No group membership needed. This is the
+#      right model for a desktop session.
+#   2. Group fallback — for headless/SSH/VM use (no active seat), the node is
+#      owned by the dedicated `openterface` group with MODE 0660. Add your user
+#      to that group: `sudo usermod -aG openterface "$USER"` (then re-login).
+#
+# This is deliberately NOT MODE="0666" (world access) and NOT the broad
+# `dialout`/`video` groups: input injection is a trust boundary (see SECURITY.md).
+# The `openterface` group must exist for the fallback; install.sh creates it.
+
+# --- CH9329 USB-serial HID bridge (input) ---
+SUBSYSTEM=="tty", SUBSYSTEMS=="usb", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", TAG+="uaccess", GROUP="openterface", MODE="0660"
+SUBSYSTEM=="tty", SUBSYSTEMS=="usb", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="fe0c", TAG+="uaccess", GROUP="openterface", MODE="0660"
+
+# --- MS2109 HDMI capture (video) ---
+SUBSYSTEM=="video4linux", SUBSYSTEMS=="usb", ATTRS{idVendor}=="345f", ATTRS{idProduct}=="2109", TAG+="uaccess", GROUP="openterface", MODE="0660"
+SUBSYSTEM=="video4linux", SUBSYSTEMS=="usb", ATTRS{idVendor}=="534d", ATTRS{idProduct}=="2109", TAG+="uaccess", GROUP="openterface", MODE="0660"

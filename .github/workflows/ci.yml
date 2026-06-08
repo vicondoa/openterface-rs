@@ -12,7 +12,34 @@ env:
 
 jobs:
   check:
-    name: fmt / clippy / test
+    name: fmt / clippy / test (no system libs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (from rust-toolchain.toml)
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      # NOTE: deliberately NO apt system libraries here. The default workspace
+      # build/test must pass with no udev/v4l/Wayland/Vulkan installed — that is
+      # the project's no-hardware, no-system-lib guarantee.
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy (default features)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Test (no hardware)
+        run: cargo nextest run --workspace
+
+      - name: Doctests (nextest does not run these)
+        run: cargo test --workspace --doc
+
+  hardware-build:
+    name: clippy + docs (hardware features)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,14 +52,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libudev-dev libv4l-dev \
-            libwayland-dev libxkbcommon-dev \
+            libwayland-dev libxkbcommon-dev libdecor-0-dev \
             clang libclang-dev
-
-      - name: Format
-        run: cargo fmt --all --check
-
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Clippy (hardware backends)
         run: |
@@ -40,11 +61,46 @@ jobs:
           cargo clippy -p openterface-cli --features hardware --all-targets -- -D warnings
           cargo clippy -p openterface-gui --features display --all-targets -- -D warnings
 
-      - name: Install nextest
-        uses: taiki-e/install-action@nextest
+      - name: Release-profile hardware build
+        run: cargo build -p openterface-cli --release --locked --features hardware
 
-      - name: Test (no hardware)
-        run: cargo nextest run --workspace
+      - name: Rustdoc (all features, warnings denied)
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc --workspace --all-features --no-deps
+
+  scripts:
+    name: shell scripts + packaging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (from rust-toolchain.toml)
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: shellcheck + syntax
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          shellcheck packaging/install.sh tools/kvm-debug.sh
+          sh -n packaging/install.sh
+          bash -n tools/kvm-debug.sh
+
+      - name: udev rule presence + perms metadata
+        run: |
+          test -f packaging/udev/60-openterface.rules
+          grep -q 'uaccess' packaging/udev/60-openterface.rules
+          ! grep -q '0666' packaging/udev/60-openterface.rules
+
+      - name: crates.io metadata (package dry-run)
+        run: |
+          # openterface-core has no workspace deps, so a full publish dry-run
+          # works standalone; the dependents are validated by `cargo package
+          # --list` (metadata + included files) since their path deps are not yet
+          # on the registry.
+          cargo publish -p openterface-core --dry-run --allow-dirty
+          for c in openterface-test-support openterface-gui openterface-cli; do
+            cargo package -p "$c" --list --allow-dirty >/dev/null
+          done
 
   supply-chain:
     name: cargo-deny
