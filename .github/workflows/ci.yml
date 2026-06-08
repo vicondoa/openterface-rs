@@ -10,15 +10,20 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
 
+permissions:
+  contents: read
+
 jobs:
   check:
     name: fmt / clippy / test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
 
       - name: Install Rust toolchain (from rust-toolchain.toml)
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
 
       - name: Install system libraries
         run: |
@@ -41,7 +46,9 @@ jobs:
           cargo clippy -p openterface-gui --features display --all-targets -- -D warnings
 
       - name: Install nextest
-        uses: taiki-e/install-action@nextest
+        uses: taiki-e/install-action@e616db6d3d80e86d787ef4a5373e3a4b74c50db2
+        with:
+          tool: nextest
 
       - name: Test (no hardware)
         run: cargo nextest run --workspace
@@ -50,8 +57,10 @@ jobs:
     name: cargo-deny
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe
         with:
           command: check advisories bans licenses sources
 
@@ -59,8 +68,10 @@ jobs:
     name: headless render (lavapipe)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
       - name: Install software Vulkan + windowing libs
         run: |
           sudo apt-get update
