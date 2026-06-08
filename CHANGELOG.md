@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-06-08
+
+### Added
+- **Aspect-ratio-preserving video display.** The window now opens at a 16:9
+  default size, and the renderer letterboxes/pillarboxes the captured frame
+  (symmetric black bars) instead of stretching it to the window shape, so the
+  target image keeps its proportions at any window size. Implemented as a pure
+  `contain_scale` fit (`openterface-gui::fit`, unit-tested with no GPU) feeding a
+  scale uniform to the blit shader.
+
 ## [1.0.1] - 2026-06-08
 
 ### Fixed
@@ -76,6 +86,7 @@ the Openterface Mini-KVM host CLI, at **core-KVM parity** with the C++ CLI (vide
 - `OPENTERFACE_USE_LIBDECOR=0` falls back to a bare xdg-shell window; full
   CSD/SSD negotiation parity beyond that is best-effort under winit.
 
-[Unreleased]: https://github.com/vicondoa/openterface-rs/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/vicondoa/openterface-rs/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/vicondoa/openterface-rs/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/vicondoa/openterface-rs/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/vicondoa/openterface-rs/releases/tag/v1.0.0

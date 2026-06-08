@@ -15,6 +15,9 @@ pub struct Renderer {
     pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
+    /// Uniform holding the contain-fit scale (`vec2` + padding) so the fragment
+    /// shader can letterbox/pillarbox the frame instead of stretching it.
+    params: wgpu::Buffer,
     texture: Option<(wgpu::Texture, wgpu::BindGroup, u32, u32)>,
 }
 
@@ -43,6 +46,16 @@ impl Renderer {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
                     count: None,
                 },
             ],
@@ -83,12 +96,22 @@ impl Renderer {
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
+        // 16 bytes: scale.xy + padding (std140 uniform alignment). Defaults to
+        // an identity fit until the first `draw` sets the real viewport scale.
+        let params = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("blit-params"),
+            size: 16,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        queue.write_buffer(&params, 0, &crate::fit::pack_scale(1.0, 1.0));
         Self {
             device,
             queue,
             pipeline,
             bind_group_layout,
             sampler,
+            params,
             texture: None,
         }
     }
@@ -125,6 +148,10 @@ impl Renderer {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(&self.sampler),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self.params.as_entire_binding(),
+                    },
                 ],
             });
             self.texture = Some((texture, bind_group, image.width, image.height));
@@ -151,8 +178,21 @@ impl Renderer {
         );
     }
 
-    /// Records a draw of the current frame into `view`.
-    pub fn draw(&self, view: &wgpu::TextureView, encoder: &mut wgpu::CommandEncoder) {
+    /// Records a draw of the current frame into `view`, letterboxing the frame
+    /// to preserve its aspect ratio within a `target_w × target_h` viewport
+    /// (black bars fill the remainder rather than stretching the image).
+    pub fn draw(
+        &self,
+        view: &wgpu::TextureView,
+        encoder: &mut wgpu::CommandEncoder,
+        target_w: u32,
+        target_h: u32,
+    ) {
+        if let Some((_, _, tw, th)) = &self.texture {
+            let (sx, sy) = crate::fit::contain_scale(*tw, *th, target_w, target_h);
+            self.queue
+                .write_buffer(&self.params, 0, &crate::fit::pack_scale(sx, sy));
+        }
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("blit-pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -214,7 +254,7 @@ impl Renderer {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        self.draw(&view, &mut encoder);
+        self.draw(&view, &mut encoder, width, height);
         encoder.copy_texture_to_buffer(
             wgpu::ImageCopyTexture {
                 texture: &target,
@@ -277,11 +317,23 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
     return out;
 }
 
+struct Params {
+    scale: vec2<f32>,
+    pad: vec2<f32>,
+};
+
 @group(0) @binding(0) var tex: texture_2d<f32>;
 @group(0) @binding(1) var samp: sampler;
+@group(0) @binding(2) var<uniform> params: Params;
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
-    return textureSample(tex, samp, in.uv);
+    // Re-center the viewport UV onto the contained image; samples outside the
+    // image map into the black bars.
+    let c = (in.uv - vec2<f32>(0.5, 0.5)) / params.scale + vec2<f32>(0.5, 0.5);
+    if (c.x < 0.0 || c.x > 1.0 || c.y < 0.0 || c.y > 1.0) {
+        return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    }
+    return textureSample(tex, samp, c);
 }
 "#;
