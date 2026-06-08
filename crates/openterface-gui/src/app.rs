@@ -87,8 +87,15 @@ impl App {
     /// dummy mode).
     fn send(&self, event: InputEvent) {
         if self.cfg.debug {
-            // `--debug`: log each forwarded input event (C++ setDebugMode).
-            tracing::info!(?event, "input");
+            // `--debug` diagnostics (C++ setDebugMode). Per SECURITY.md, never
+            // log key identity/typed text: redact keyboard events to just the
+            // press/release edge. Mouse motion/buttons/scroll are not sensitive.
+            match &event {
+                InputEvent::Key { pressed, .. } => {
+                    tracing::info!(pressed = *pressed, "key event (redacted)")
+                }
+                other => tracing::info!(event = ?other, "input"),
+            }
         }
         if let Some(s) = &self.cfg.session {
             s.send_input(event);

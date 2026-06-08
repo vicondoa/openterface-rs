@@ -116,8 +116,17 @@ fn probe_get_info<T: SerialTransport>(transport: &mut T, timeout: Duration) -> R
 /// RTS hold time for a CH9329 factory reset (the C++ pulses RTS high ~4 s).
 pub const FACTORY_RESET_RTS_HOLD: Duration = Duration::from_secs(4);
 
-/// Settle time after releasing RTS before the software reset (C++ ~500 ms).
+/// Settle time after releasing RTS before the software reconfigure (C++ ~500 ms).
 pub const FACTORY_RESET_SETTLE: Duration = Duration::from_millis(500);
+
+/// Extra wait after the RTS pulse before the software reconfigure (C++ ~1 s).
+pub const FACTORY_RESET_POST_SETTLE: Duration = Duration::from_secs(1);
+
+/// `resetChip` delays (C++): 100 ms after the first reset, 50 ms after the
+/// config, 200 ms for the chip to restart after the final reset.
+const RESET_CHIP_AFTER_RESET: Duration = Duration::from_millis(100);
+const RESET_CHIP_AFTER_CFG: Duration = Duration::from_millis(50);
+const RESET_CHIP_AFTER_FINAL: Duration = Duration::from_millis(200);
 
 /// Sends the CH9329 software/HID reset command (`CMD 0x0F`) on `transport`.
 ///
@@ -127,10 +136,28 @@ pub fn reset_hid<T: SerialTransport>(transport: &mut T) -> Result<()> {
     transport.write_all(&ch9329::software_reset())
 }
 
-/// Performs a CH9329 **factory reset**: pulses RTS high for `rts_hold`, releases
-/// it, waits `settle`, then issues a software reset so the chip re-initializes
-/// (C++ `factoryReset`). The `sleep` function is injected so callers in tests
-/// can run without real delays; production passes [`std::thread::sleep`].
+/// Resets and reconfigures the CH9329 to **mode 0x82 / 115200** (C++
+/// `resetChip`): software reset, [`ch9329::set_para_cfg`], then a final reset to
+/// apply, with the same inter-step delays. `sleep` is injected for tests.
+pub fn reset_chip<T, S>(transport: &mut T, mut sleep: S) -> Result<()>
+where
+    T: SerialTransport,
+    S: FnMut(Duration),
+{
+    transport.write_all(&ch9329::software_reset())?;
+    sleep(RESET_CHIP_AFTER_RESET);
+    transport.write_all(&ch9329::set_para_cfg())?;
+    sleep(RESET_CHIP_AFTER_CFG);
+    transport.write_all(&ch9329::software_reset())?;
+    sleep(RESET_CHIP_AFTER_FINAL);
+    Ok(())
+}
+
+/// Performs a full CH9329 **factory reset** (C++ `factoryReset`): pulses RTS
+/// high for `rts_hold` (hardware reset), releases it, waits `settle` then an
+/// extra [`FACTORY_RESET_POST_SETTLE`], and finally runs [`reset_chip`] to
+/// reconfigure the chip to mode 0x82 / 115200. The `sleep` function is injected
+/// so tests run without real delays; production passes [`std::thread::sleep`].
 ///
 /// Use [`FACTORY_RESET_RTS_HOLD`] / [`FACTORY_RESET_SETTLE`] for the standard
 /// durations.
@@ -148,7 +175,8 @@ where
     sleep(rts_hold);
     transport.set_rts(false)?;
     sleep(settle);
-    transport.write_all(&ch9329::software_reset())?;
+    sleep(FACTORY_RESET_POST_SETTLE);
+    reset_chip(transport, &mut sleep)?;
     Ok(())
 }
 
@@ -250,16 +278,47 @@ mod tests {
     fn factory_reset_pulses_rts_then_resets() {
         let mut s = ScriptedSerial::new(vec![]);
         let mut slept: Vec<Duration> = Vec::new();
-        // Inject a recording sleeper so the test does not wait the real ~4.5 s.
+        // Inject a recording sleeper so the test does not wait the real delays.
         factory_reset(&mut s, FACTORY_RESET_RTS_HOLD, FACTORY_RESET_SETTLE, |d| {
             slept.push(d)
         })
         .unwrap();
         // RTS goes high then low.
         assert_eq!(s.rts_log, vec![true, false]);
-        // It sleeps the hold then the settle.
-        assert_eq!(slept, vec![FACTORY_RESET_RTS_HOLD, FACTORY_RESET_SETTLE]);
-        // And finishes with a software reset.
-        assert_eq!(s.written, vec![ch9329::software_reset()]);
+        // Delays: RTS hold, settle, post-settle, then resetChip's 100/50/200 ms.
+        assert_eq!(
+            slept,
+            vec![
+                FACTORY_RESET_RTS_HOLD,
+                FACTORY_RESET_SETTLE,
+                FACTORY_RESET_POST_SETTLE,
+                RESET_CHIP_AFTER_RESET,
+                RESET_CHIP_AFTER_CFG,
+                RESET_CHIP_AFTER_FINAL,
+            ]
+        );
+        // resetChip writes: reset, set_para_cfg, reset (reconfigure to mode 0x82).
+        assert_eq!(
+            s.written,
+            vec![
+                ch9329::software_reset(),
+                ch9329::set_para_cfg(),
+                ch9329::software_reset(),
+            ]
+        );
+    }
+
+    #[test]
+    fn reset_chip_reconfigures_mode_82() {
+        let mut s = ScriptedSerial::new(vec![]);
+        reset_chip(&mut s, |_| {}).unwrap();
+        assert_eq!(
+            s.written,
+            vec![
+                ch9329::software_reset(),
+                ch9329::set_para_cfg(),
+                ch9329::software_reset(),
+            ]
+        );
     }
 }
