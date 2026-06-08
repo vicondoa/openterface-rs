@@ -89,7 +89,7 @@ fn hash_bytes(bytes: &[u8]) -> u64 {
 /// The throttle's per-frame decode/upload/refresh decision machine.
 ///
 /// All times are an opaque monotonic value supplied by the caller (the GUI uses
-/// `Instant`; tests use a synthetic millisecond counter via [`Clock`]).
+/// `Instant`; tests use a synthetic millisecond counter).
 pub struct FrameThrottle {
     config: ThrottleConfig,
     last_raw_hash: Option<u64>,

@@ -21,7 +21,7 @@ Options:
   -h, --help     Print help
 
 $ openterface-rs --version
-openterface-rs 0.0.0
+openterface-rs 1.0.0
 
 $ openterface-rs connect --help
 Connect to KVM device (auto-discovers devices if none specified)

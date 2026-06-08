@@ -8,6 +8,8 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
+keywords = ["kvm", "openterface", "wayland", "wgpu", "winit"]
+categories = ["gui", "hardware-support"]
 
 [features]
 # The actual on-screen window + GPU renderer. Off by default so the pure

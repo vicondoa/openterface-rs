@@ -171,7 +171,10 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
     use openterface_core::video::{backend::V4l2Source, CaptureConfig, VideoSource};
     use openterface_gui::{run, RunConfig};
 
-    let fullscreen = std::env::var("OPENTERFACE_FULLSCREEN").is_ok();
+    let fullscreen = std::env::var("OPENTERFACE_FULLSCREEN")
+        .ok()
+        .map(|v| !matches!(v.trim(), "" | "0" | "false" | "no" | "off"))
+        .unwrap_or(false);
 
     // Dummy mode: open the window with a test pattern, no devices.
     if args.dummy {

@@ -37,6 +37,14 @@ pub mod cmd {
 }
 
 /// Computes the CH9329 checksum: the low byte of the additive sum of `bytes`.
+///
+/// # Examples
+///
+/// ```
+/// use openterface_core::protocol::ch9329::checksum;
+/// // The 3-byte frame prefix sums to 0x57 + 0xAB + 0x00 = 0x102 -> low byte 0x02.
+/// assert_eq!(checksum(&[0x57, 0xAB, 0x00]), 0x02);
+/// ```
 #[must_use]
 pub fn checksum(bytes: &[u8]) -> u8 {
     bytes.iter().fold(0u8, |acc, b| acc.wrapping_add(*b))
@@ -63,6 +71,20 @@ pub fn frame(cmd: u8, data: &[u8]) -> Vec<u8> {
 ///
 /// `pos` is clamped to `0..=4095` per axis; `wheel` is a signed tick
 /// (0 for none).
+///
+/// # Examples
+///
+/// ```
+/// use openterface_core::event::{AbsPosition, ButtonMask};
+/// use openterface_core::protocol::ch9329::mouse_absolute;
+///
+/// let frame = mouse_absolute(AbsPosition { x: 100, y: 200 }, ButtonMask::LEFT, 0);
+/// // 57 AB 00 | CMD 04 | LEN 07 | 02 buttons xLo xHi yLo yHi wheel | SUM
+/// assert_eq!(
+///     frame,
+///     vec![0x57, 0xAB, 0x00, 0x04, 0x07, 0x02, 0x01, 0x64, 0x00, 0xC8, 0x00, 0x00, 0x3C],
+/// );
+/// ```
 #[must_use]
 pub fn mouse_absolute(pos: AbsPosition, buttons: ButtonMask, wheel: i8) -> Vec<u8> {
     let x = pos.x.min(ABS_MAX);

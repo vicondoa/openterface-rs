@@ -8,6 +8,8 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
+keywords = ["kvm", "openterface", "ch9329", "v4l2", "hid"]
+categories = ["hardware-support", "multimedia::video"]
 
 [dependencies]
 thiserror.workspace = true

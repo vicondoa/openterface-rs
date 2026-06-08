@@ -25,8 +25,51 @@
           vulkan-loader
           libGL
         ];
+
+        # winit + wgpu dlopen Wayland + Vulkan at runtime, so the installed
+        # binary must find them via LD_LIBRARY_PATH (a plain rpath is not
+        # enough for dlopen). This wrapper is also the basis for the W6
+        # /etc/nixos work-ssd derivation.
+        openterface-rs = pkgs.rustPlatform.buildRustPackage {
+          pname = "openterface-rs";
+          version = (builtins.fromTOML
+            (builtins.readFile ./Cargo.toml)).workspace.package.version;
+          src = ./.;
+          cargoLock.lockFile = ./Cargo.lock;
+
+          nativeBuildInputs = nativeBuildInputs ++ [ pkgs.makeWrapper pkgs.clang ];
+          inherit buildInputs;
+
+          # Ship the real-hardware path.
+          buildAndTestSubdir = "crates/openterface-cli";
+          buildFeatures = [ "hardware" ];
+          # The default `cargo test` is hardware-free, but the Nix sandbox has no
+          # GPU/Wayland; keep the package build deterministic by not running the
+          # display/gpu tests here (CI covers them on lavapipe).
+          doCheck = false;
+
+          LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
+
+          postInstall = ''
+            wrapProgram $out/bin/openterface-rs \
+              --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath buildInputs}"
+            install -Dm0644 packaging/udev/60-openterface.rules \
+              $out/lib/udev/rules.d/60-openterface.rules
+          '';
+
+          meta = with pkgs.lib; {
+            description = "Native-Linux, Wayland-only, Qt-free Rust port of the Openterface Mini-KVM";
+            homepage = "https://github.com/vicondoa/openterface-rs";
+            license = licenses.asl20;
+            platforms = platforms.linux;
+            mainProgram = "openterface-rs";
+          };
+        };
       in
       {
+        packages.default = openterface-rs;
+        packages.openterface-rs = openterface-rs;
+
         devShells.default = pkgs.mkShell {
           inherit nativeBuildInputs buildInputs;
           packages = with pkgs; [
