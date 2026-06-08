@@ -182,6 +182,9 @@ impl ApplicationHandler for App {
             .with_title(self.cfg.title.clone())
             // Wayland app-id (window rules / taskbar grouping) — C++ parity.
             .with_name("openterface-rs", "openterface-rs")
+            // Open at a 16:9 size so the window starts at the capture's shape
+            // (the frame is letterboxed if the user later resizes off-ratio).
+            .with_inner_size(LogicalSize::new(1280.0, 720.0))
             // Minimum sensible window size (C++ uses 640x480).
             .with_min_inner_size(LogicalSize::new(640.0, 480.0));
         // OPENTERFACE_USE_LIBDECOR=0 selects the bare xdg-shell window (no
@@ -343,7 +346,8 @@ impl ApplicationHandler for App {
                                 label: Some("frame"),
                             },
                         );
-                        gpu.renderer.draw(&view, &mut encoder);
+                        gpu.renderer
+                            .draw(&view, &mut encoder, gpu.config.width, gpu.config.height);
                         gpu.renderer.queue().submit(Some(encoder.finish()));
                         surface_tex.present();
                     }

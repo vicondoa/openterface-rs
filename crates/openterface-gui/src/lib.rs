@@ -12,6 +12,7 @@
 //! validated live on niri (W4.2) and on the work-ssd VM (W6).
 
 pub mod coord;
+pub mod fit;
 pub mod throttle;
 
 #[cfg(feature = "display")]
