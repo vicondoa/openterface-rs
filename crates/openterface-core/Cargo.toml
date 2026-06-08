@@ -12,6 +12,7 @@ authors.workspace = true
 [dependencies]
 thiserror.workspace = true
 tracing.workspace = true
+zune-jpeg = "0.4"
 
 [dev-dependencies]
 proptest = "1"
