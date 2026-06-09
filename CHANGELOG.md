@@ -12,6 +12,7 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 - Removed historical implementation-comparison wording from docs and comments.
+- Removed the obsolete implementation plan and its documentation links.
 
 ## [1.0.2] - 2026-06-08
 
