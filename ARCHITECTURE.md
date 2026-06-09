@@ -91,7 +91,5 @@ Two frontends sit on top of the core:
 ## Testing
 
 Because the hardware seams are traits, the suite runs with no device and no
-system libraries — see [testing & simulation](docs/explanation/testing-and-simulation.md).
-
-See [`PLAN.md`](PLAN.md) for the implementation sequence and
-[`docs/`](docs/README.md) for the full documentation tree.
+system libraries — see [testing & simulation](docs/explanation/testing-and-simulation.md)
+and [`docs/`](docs/README.md) for the full documentation tree.

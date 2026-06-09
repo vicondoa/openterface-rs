@@ -15,10 +15,10 @@ from the nixling project's methodology for a Rust userland KVM tool.
 
 ## Panel review (two gates per wave)
 
-Work is organized into **waves** (`W0`…`W6`; see [`PLAN.md`](PLAN.md)). A wave
-is the unit of review — the nixling notion of a "phase". Each wave passes
-**two panel gates**, and the integrator MUST NOT cross a gate without
-**unanimous sign-off** from the wave's selected roster:
+Large changes are organized into **waves**. A wave is the unit of review — the
+nixling notion of a "phase". Each wave passes **two panel gates**, and the
+integrator MUST NOT cross a gate without **unanimous sign-off** from the wave's
+selected roster:
 
 1. **Plan-review gate** (before dispatch) — the panel reviews the wave's task
    breakdown/approach. No implementation work begins until every selected

@@ -36,4 +36,4 @@ directions.
 
 v1.0 targets the core KVM workflow: video plus keyboard/mouse over one USB
 cable. Real-hardware validation runs in the work-ssd VM via the closed-loop
-harness. See [`../PLAN.md`](../PLAN.md) for the roadmap.
+harness.

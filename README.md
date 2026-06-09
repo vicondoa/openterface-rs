@@ -9,8 +9,7 @@ hardware (MS2109 HDMI capture + CH9329 USB-serial HID bridge).
 
 > **Status:** v1.0 targets the core KVM workflow — video plus keyboard/mouse over
 > one USB cable. Real-hardware validation runs in a VM via the closed-loop
-> harness. See [`PLAN.md`](PLAN.md) for the roadmap and
-> [`docs/`](docs/README.md) for full documentation.
+> harness. See [`docs/`](docs/README.md) for full documentation.
 
 ## Why Rust?
 
@@ -101,8 +100,9 @@ Full docs live in [`docs/`](docs/README.md): the
 
 ## Acknowledgements
 
-Thanks to the author of the original C++ Openterface version for pioneering the
-hardware support that made this Rust implementation possible.
+Thanks to [@bresilla](https://github.com/bresilla), author of the
+[original C++ Openterface version](https://github.com/bresilla/openterface), for
+pioneering the hardware support that made this Rust implementation possible.
 
 ## License
 
