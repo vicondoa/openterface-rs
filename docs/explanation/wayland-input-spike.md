@@ -46,8 +46,7 @@ interface: 'wl_seat',                          version: 9,  name: 40
 - `zwp_relative_pointer_manager_v1` + `zwp_pointer_constraints_v1` → **relative
   mouse mode is supported.**
 - **No `zxdg_decoration_manager_v1`** → confirms niri is **CSD-only**; the
-  frontend must draw client-side decorations (matches the C++ fork's
-  `LIBDECOR_FORCE_CSD=1`).
+  frontend must draw client-side decorations.
 - Bonus: `zwp_virtual_keyboard_manager_v1` / `zwlr_virtual_pointer_manager_v1`
   exist (not needed by us, but available).
 
@@ -74,12 +73,11 @@ A minimal `winit 0.30` app (no wgpu) run against niri:
 
 - Use **`winit` (Wayland-only, X11 feature disabled) + `wgpu`**.
 - Enable `winit`'s Wayland **CSD** (`sctk-adwaita`/libdecor-equivalent); honor an
-  `OPENTERFACE_USE_LIBDECOR=0` escape to a bare window for parity.
+  `OPENTERFACE_USE_LIBDECOR=0` escape to a bare window.
 - **Absolute mode:** `WindowEvent::CursorMoved` → map to `0..=4095`.
 - **Relative mode:** `set_cursor_grab(Locked)` + hide cursor + consume
-  `DeviceEvent::MouseMotion`; long-press-Esc exits (parity behavior).
-- Keep the C++ fork's lessons: resize off the input thread; content-area clicks
-  always forward.
+  `DeviceEvent::MouseMotion`; long-press-Esc exits.
+- Resize off the input thread; content-area clicks always forward.
 
 ## Packaging note (W4.2 / W6)
 
@@ -94,7 +92,7 @@ must wrap the binary with the same runtime libraries.
 ## Not verified non-interactively (low risk)
 
 - Actual key/motion *event delivery* needs window focus + input; not scripted
-  here. Low risk: it is standard `winit`/Wayland behavior and the C++ fork
-  already runs the full input model on niri in the work-ssd VM.
+  here. Low risk: it is standard `winit`/Wayland behavior and is exercised on
+  niri in the work-ssd VM.
 - "Host does not also receive forwarded keys" is guaranteed by Wayland's
   focus-routing model (only the focused surface receives input).

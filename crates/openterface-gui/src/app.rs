@@ -63,7 +63,7 @@ struct App {
     mod_byte: Modifiers,
     start: Instant,
     /// A window resize whose GPU surface reconfigure is deferred to the next
-    /// redraw, off the event-dispatch path (C++ resize-off-input-thread parity).
+    /// redraw, off the event-dispatch path.
     pending_resize: Option<(u32, u32)>,
     frames_seen: u64,
     uploads: u64,
@@ -98,9 +98,9 @@ impl App {
     /// dummy mode).
     fn send(&self, event: InputEvent) {
         if self.cfg.debug {
-            // `--debug` diagnostics (C++ setDebugMode). Per SECURITY.md, never
-            // log key identity/typed text: redact keyboard events to just the
-            // press/release edge. Mouse motion/buttons/scroll are not sensitive.
+            // Per SECURITY.md, never log key identity/typed text: redact
+            // keyboard events to just the press/release edge. Mouse
+            // motion/buttons/scroll are not sensitive.
             match &event {
                 InputEvent::Key { pressed, .. } => {
                     tracing::info!(pressed = *pressed, "key event (redacted)")
@@ -186,12 +186,12 @@ impl ApplicationHandler for App {
         }
         let mut attrs = Window::default_attributes()
             .with_title(self.cfg.title.clone())
-            // Wayland app-id (window rules / taskbar grouping) — C++ parity.
+            // Wayland app-id (window rules / taskbar grouping).
             .with_name("openterface-rs", "openterface-rs")
             // Open at a 16:9 size so the window starts at the capture's shape
             // (the frame is letterboxed if the user later resizes off-ratio).
             .with_inner_size(LogicalSize::new(1280.0, 720.0))
-            // Minimum sensible window size (C++ uses 640x480).
+            // Minimum sensible window size.
             .with_min_inner_size(LogicalSize::new(640.0, 480.0));
         // OPENTERFACE_USE_LIBDECOR=0 selects the bare xdg-shell window (no
         // client-side decorations); the default uses libdecor CSD (winit draws
@@ -268,8 +268,7 @@ impl ApplicationHandler for App {
             WindowEvent::Resized(size) => {
                 // Defer the GPU surface reconfigure to the next redraw, off the
                 // event-dispatch path, so a burst of resize events coalesces and
-                // input is never blocked by GPU work (C++ resize-off-input-thread
-                // parity).
+                // input is never blocked by GPU work.
                 self.pending_resize = Some((size.width.max(1), size.height.max(1)));
                 if let Some(gpu) = self.gpu.as_ref() {
                     gpu.window.request_redraw();
@@ -277,7 +276,7 @@ impl ApplicationHandler for App {
             }
             WindowEvent::Focused(false) => {
                 // Releasing focus: drop all held keys/buttons so the target
-                // never sees stuck input (C++ focus-loss parity).
+                // never sees stuck input.
                 self.mod_byte = Modifiers::NONE;
                 self.release_all();
             }

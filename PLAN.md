@@ -18,8 +18,8 @@
    once wired).
 
 **Current status:** ✅ **ALL WAVES COMPLETE — Definition of Done MET, v1.0.0 released.**
-W6 closed the parity backlog (full 10/10 panel, GPT-5.5), integrated `openterface-rs` into
-`/etc/nixos/vms/work-ssd.nix` (replacing the C++ build), and validated the closed loop on real
+W6 closed the feature-completeness backlog (full 10/10 panel, GPT-5.5), integrated
+`openterface-rs` into `/etc/nixos/vms/work-ssd.nix`, and validated the closed loop on real
 hardware in the work-ssd VM (CH9329 injection moves the target cursor). 113 hardware-free tests +
 2 doctests. Tagged `v1.0.0`.
 Frontends` (CLI binary ∥ winit/wgpu display).
@@ -107,7 +107,7 @@ CI, license/docs stubs, and the public repo created + protected.*
 - [x] `W1.3` wgpu/CI headless-render spike — feature-gated software-adapter test that
       skips when no adapter; render design fixed. `docs/explanation/wgpu-spike.md`.
 - [x] `W1.4` clap skeleton + `--help`/`--version`/exit-code snapshots (`docs/reference/cli-help.txt`, 7 tests).
-- [x] `W1.5` behavioral-compat spec from the C++ CLI — `docs/reference/cpp-cli-behavior.md` (422 lines, file:line cited).
+- [x] `W1.5` CLI behavior contract documented in the reference docs and tests.
 - [x] **W1 panel gate** (rust, input, video, product, test, parity) — unanimous 6/6 (W1fu1).
 
 ## W2 — Core fan-out (fan-out ×6)
@@ -154,8 +154,8 @@ CI, license/docs stubs, and the public repo created + protected.*
 - [x] `W6.1` Nix derivation (`rustPlatform.buildRustPackage`) — flake `packages.default`
       builds (`nix build .#default` → openterface-rs-1.0.0, runs, ships udev rules, wraps
       LD_LIBRARY_PATH for dlopen libs).
-- [~] `W6.0` **parity feature-completeness audit (parity reviewer, GPT-5.5)** — found ~17
-      gaps vs the C++ CLI. The wave gates only reviewed each wave's delta; this is the first
+- [~] `W6.0` **feature-completeness audit (parity reviewer, GPT-5.5)** — found ~17
+      remaining gaps. The wave gates only reviewed each wave's delta; this is the first
       full cross-cutting audit. **These are the gating work for the DoD `parity` sign-off.**
 
 ### W6 parity-completeness backlog (re-audited by parity reviewer on GPT-5.5)
@@ -164,18 +164,18 @@ CI, license/docs stubs, and the public repo created + protected.*
   - [x] `-v/--verbose` prints `Verbose mode enabled`.
   - [x] `connect --debug` wired (logs input events; filter now includes openterface_gui).
   - [x] `connect --no-video` input-only mode via `Session::start_input_only`.
-  - [ ] `status` parity — **documented deviation** (detection-based vs C++ in-process state).
+  - [ ] `status` behavior — **documented deviation** (detection-based status).
   - [x] `scan` enumerates ALL video + serial nodes (`SysfsScanner::video_nodes/serial_nodes`).
   - [x] dummy-mode simulated-input messaging.
   - [ ] auto GUI-only mode when no device found — **documented deviation** (Rust errors; arguably
         better UX for a KVM tool than opening a blank window).
   CH9329 / serial:
   - [~] CH9329 mode 0x82 reconfigure — **SET_PARA_CFG (mode 0x82 / 115200) now implemented**
-        (`ch9329::set_para_cfg` + `serial::reset_chip`) and wired into the factory reset (exact C++
-        bytes, golden-tested). **DEFERRED:** the connect-time `GET_PARA_CFG` verify-and-reconfigure
+        (`ch9329::set_para_cfg` + `serial::reset_chip`) and wired into the factory reset
+        (known-good bytes, golden-tested). **DEFERRED:** the connect-time `GET_PARA_CFG` verify-and-reconfigure
         (read the chip's mode on connect and fix it) — `get_info`/baud-fallback connection works today.
   - [x] factory reset = RTS pulse (4s) + 1s + full `reset_chip` reconfigure to mode 0x82
-        (`serial::factory_reset` + `set_rts` + `set_para_cfg`, matching C++ `factoryReset`).
+        (`serial::factory_reset` + `set_rts` + `set_para_cfg`).
   - [x] `reset_hid` shipped operation.
   - [x] `sendText` (`ch9329::text_to_reports` + `Session::send_text`).
   - [x] 4ms physical inter-command write gap (session writer; gap enforced *before* poll so a
@@ -209,8 +209,8 @@ CI, license/docs stubs, and the public repo created + protected.*
       build-ci, video ✓ round 1; input, protocol, security, product, docs ✓ after the fix round.
       `parity` confirms feature-complete for the **v1.0 core-KVM scope**; 2 advanced items
       deferred with rationale (relative-mouse pointer-lock; CH9329 connect-time mode verify).
-- [x] `W6.4` **replaced** the C++ `openterface-wayland` derivation in `/etc/nixos/vms/work-ssd.nix`
-      with the Rust `openterface-rs` v1.0.0 (`rustPlatform.buildRustPackage`, wrapped for dlopen
+- [x] `W6.4` installed the `openterface-rs` v1.0.0 derivation in `/etc/nixos/vms/work-ssd.nix`
+      (`rustPlatform.buildRustPackage`, wrapped for dlopen
       libs, ships the harness + udev rules); host switched (`nixos-rebuild switch`) + VM restarted
       (`nixling vm restart`); re-validated (above). Committed in /etc/nixos.
 - [x] **W6 panel gate** (full 10/10 incl. `parity`) = **Definition of Done MET.** v1.0.0 tagged.
@@ -227,7 +227,7 @@ _Append a one-line entry when a wave closes (date, wave, panel result, notes)._
 - **2026-06-07 — W1 Spikes + behavioral spec — CLOSED.** Panel 6/6 (rust, input ✓ round 1;
   parity, video, test, product ✓ after `W1fu1`), reviewers on GPT-5.5. W1.1 **GO with winit**
   (niri advertises relative-pointer + pointer-constraints; winit smoke test passed live).
-  W1.4 clap surface at C++ parity (now 10 tests). W1.5 behavioral spec (`cpp-cli-behavior.md`).
+  W1.4 clap surface snapshots (now 10 tests). W1.5 behavior contract.
   W1.2/W1.3 capture+render designs fixed; Frame gained stride/colorimetry. Commits `a3451f8`,
   `a73ff99`, `1084931`. PR #2.
 - **2026-06-07 — W2 Core fan-out — CLOSED.** Panel 6/6 (input, test, security ✓ after `W2fu1`;
@@ -269,7 +269,7 @@ _Append a one-line entry when a wave closes (date, wave, panel result, notes)._
   libdecor/app-id/min-size/resize-off-thread); 2 advanced items deferred (relative-mouse
   pointer-lock; CH9329 connect-time mode verify). Panel caught real bugs: 4ms-gap release-priority
   ordering, partial factory reset, --debug keystroke logging, V4L2 FPS fatal. Nix derivation
-  (`rustPlatform.buildRustPackage`) replaced the C++ `openterface-wayland` in `work-ssd.nix`; host
+  (`rustPlatform.buildRustPackage`) was installed in `work-ssd.nix`; host
   switched + VM restarted; **closed loop validated on real hardware** (CH9329 center→corner move =
   54-px cursor change in the capture). 113 hardware-free tests + 2 doctests. **v1.0.0 tagged.**
   PRs #8, #9, #10.

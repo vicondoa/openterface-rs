@@ -42,19 +42,15 @@ openterface-rs = pkgs.callPackage ./packaging/nixos/openterface-rs.nix {
 On a Wayland seat the rules' `uaccess` tag grants the logged-in user access; for
 headless/SSH use, the `openterface` group is the fallback.
 
-## 4. Replacing a CMake/C++ `openterface` derivation (microVM)
+## 4. System or microVM integration notes
 
-This package is a drop-in for a prior C++ `openterface`/`openterface-wayland`
-derivation. The runtime contract matches:
+The runtime contract is:
 
 - The binary is `openterface-rs`; it accepts `connect --video=<path> --serial=<path>`
   (compatible with a wrapper that auto-detects the nodes).
 - The `OPENTERFACE_*` runtime tunables (mouse pacing, idle-decode throttle,
   fullscreen) are honored — see [`docs/reference/env-vars.md`](../../docs/reference/env-vars.md).
 
-> **Parity note:** before switching a production KVM over, verify the
-> feature-completeness backlog in [`PLAN.md`](../../PLAN.md) (W6) — a few C++
-> behaviors (e.g. `OPENTERFACE_USE_LIBDECOR`, `connect --no-video` input-only
-> mode, the CH9329 init/factory-reset sequences) are still being brought to full
-> parity — and run the [closed-loop harness](../../docs/how-to/closed-loop-harness.md)
-> against the real device.
+Before switching a production KVM over, run the
+[closed-loop harness](../../docs/how-to/closed-loop-harness.md) against the real
+device.

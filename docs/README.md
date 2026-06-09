@@ -9,10 +9,9 @@ directions.
 - [Environment variables](reference/env-vars.md) — runtime tunables and
   harness/test variables, with defaults and ranges.
 - [CH9329 protocol](reference/protocol.md) — the serial command framing this
-  port implements.
+  implementation uses.
 - [Device IDs & node selection](reference/device-ids.md) — USB VID/PID and how
   the right `/dev` nodes are chosen.
-- [C++ CLI behavioral spec](reference/cpp-cli-behavior.md) — the parity target.
 
 ## How-to guides (task-oriented)
 
@@ -35,6 +34,6 @@ directions.
 
 ## Status
 
-v1.0 targets **core-KVM parity** with the C++ CLI (video + keyboard/mouse over
-one USB cable). Real-hardware validation runs in the work-ssd VM via the
-closed-loop harness. See [`../PLAN.md`](../PLAN.md) for the roadmap.
+v1.0 targets the core KVM workflow: video plus keyboard/mouse over one USB
+cable. Real-hardware validation runs in the work-ssd VM via the closed-loop
+harness. See [`../PLAN.md`](../PLAN.md) for the roadmap.

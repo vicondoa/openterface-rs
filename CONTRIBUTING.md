@@ -1,8 +1,8 @@
 # Contributing to openterface-rs
 
-Thanks for your interest! This project targets **Linux + Wayland only**, is
-**Qt-free**, and aims for a fast build and a test-suite that runs **without
-hardware**.
+Thanks for your interest! This project targets **Linux + Wayland only**, keeps a
+lean native dependency set, and aims for a fast build and a test-suite that runs
+**without hardware**.
 
 ## Getting started
 

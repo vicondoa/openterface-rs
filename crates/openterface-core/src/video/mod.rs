@@ -98,7 +98,7 @@ impl From<CaptureConfig> for CaptureFormatCandidate {
     }
 }
 
-/// Documented V4L2 fallback chain from the C++ reference implementation.
+/// Documented V4L2 fallback chain for Openterface capture devices.
 #[cfg(any(test, feature = "video-backend"))]
 pub(crate) const V4L2_FALLBACK_FORMATS: [CaptureFormatCandidate; 3] = [
     CaptureFormatCandidate::new(1920, 1080, PixelFormat::Mjpeg),

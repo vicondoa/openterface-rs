@@ -1,9 +1,9 @@
 # Threading & shutdown model
 
 openterface-rs uses **std threads + channels**, not an async runtime. This
-matches the C++ design, keeps builds fast, and makes the data flow explicit. The
-rule is: every thread has a defined owner, a way to be told to stop, and a join
-on shutdown — so stopping never deadlocks, even when the device disappears.
+keeps builds fast and makes the data flow explicit. The rule is: every thread
+has a defined owner, a way to be told to stop, and a join on shutdown — so
+stopping never deadlocks, even when the device disappears.
 
 ## Threads in a session
 

@@ -167,9 +167,8 @@ impl Session {
     }
 
     /// Types `text` on the target by submitting key press/release events through
-    /// the paced input path (manual text injection; C++ `Serial::sendText`
-    /// parity). Unmappable characters are skipped; each character is a press
-    /// (with any needed modifier) followed by an all-keys-released report.
+    /// the paced input path. Unmappable characters are skipped; each character is
+    /// a press (with any needed modifier) followed by an all-keys-released report.
     pub fn send_text(&self, text: &str) {
         for ch in text.chars() {
             if let Some((mods, usage)) = crate::protocol::hid::ascii_to_hid(ch) {
@@ -236,7 +235,7 @@ fn writer_loop<T: SerialTransport>(
     pacing: PacingConfig,
 ) {
     let mut scheduler = PacingScheduler::new(pacing);
-    // Physical inter-command spacing (CH9329 buffer safety; C++ sendDataRaw).
+    // Physical inter-command spacing for CH9329 buffer safety.
     let mut last_write: Option<Instant> = None;
     loop {
         let now = Instant::now();

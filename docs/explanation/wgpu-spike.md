@@ -7,9 +7,8 @@ heavy `wgpu` dependency out of the way of the no-hardware CI guarantee.
 
 ## Idle-decode throttle state machine (W4.2 design)
 
-"Upload on change" alone does not throttle the expensive *decode*. The C++ fork
-runs a small state machine (see `cpp-cli-behavior.md` → idle throttling) that
-openterface-rs reproduces:
+"Upload on change" alone does not throttle the expensive *decode*. The GUI uses
+a small state machine:
 
 1. **Raw dedup:** hash/byte-compare the *encoded* MJPEG payload against the last
    frame; if identical, skip decode **and** upload entirely.
@@ -43,7 +42,7 @@ The frontend renders a single decoded frame per refresh:
 
 1. `decode::decode_frame` → `RgbaImage` (W2.3).
 2. Upload to a `wgpu::Texture` (`R8G8B8A8Unorm`), `write_texture` on change only
-   (idle-decode throttle skips unchanged frames — see `cpp-cli-behavior.md`).
+   (idle-decode throttle skips unchanged frames).
 3. Draw a full-screen triangle/quad sampling the texture; present to the
    `winit` surface.
 

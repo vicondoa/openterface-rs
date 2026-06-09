@@ -1,10 +1,10 @@
 //! The paced CH9329 command scheduler.
 //!
-//! **Why this exists (load-bearing parity):** over USB/IP the CH9329 drains
-//! absolute-move commands at only ~30-40/sec. Forwarding mouse moves faster
-//! (e.g. at 60 Hz) overruns its command buffer; the sparse key/button
-//! **release** commands then queue behind the move backlog and arrive late, so
-//! the target autorepeats keys and clicks miss. The scheduler therefore:
+//! **Why this exists:** over USB/IP the CH9329 drains absolute-move commands at
+//! only ~30-40/sec. Forwarding mouse moves faster (e.g. at 60 Hz) overruns its
+//! command buffer; the sparse key/button **release** commands then queue behind
+//! the move backlog and arrive late, so the target autorepeats keys and clicks
+//! miss. The scheduler therefore:
 //!
 //! - **paces mouse moves** to one per [`PacingConfig::mouse_interval`] (default
 //!   ~30 Hz), and
@@ -27,16 +27,15 @@ use crate::protocol::ch9329;
 pub const DEFAULT_MOUSE_INTERVAL: Duration = Duration::from_millis(33);
 
 /// Minimum spacing enforced between **any** two consecutive CH9329 writes
-/// (including back-to-back priority key/button frames). The C++ `sendDataRaw`
-/// serializes writes with a ~4 ms gap so a burst (e.g. many releases at once)
-/// never overruns the chip's command buffer. Enforced by the session writer at
-/// the physical write layer (see [`crate::session`]).
+/// (including back-to-back priority key/button frames). A burst (e.g. many
+/// releases at once) must not overrun the chip's command buffer. Enforced by the
+/// session writer at the physical write layer (see [`crate::session`]).
 pub const DEFAULT_COMMAND_GAP: Duration = Duration::from_millis(4);
 
 /// Environment variable that overrides the mouse-move interval (milliseconds).
 pub const ENV_MOUSE_INTERVAL_MS: &str = "OPENTERFACE_MOUSE_INTERVAL_MS";
 
-/// Minimum / maximum accepted mouse interval (matches the C++ 5..=1000 ms gate).
+/// Minimum / maximum accepted mouse interval.
 const MIN_INTERVAL_MS: u64 = 5;
 const MAX_INTERVAL_MS: u64 = 1000;
 

@@ -113,32 +113,32 @@ fn probe_get_info<T: SerialTransport>(transport: &mut T, timeout: Duration) -> R
     Ok(ch9329::parse_response(&buf[..n]).is_some())
 }
 
-/// RTS hold time for a CH9329 factory reset (the C++ pulses RTS high ~4 s).
+/// RTS hold time for a CH9329 factory reset.
 pub const FACTORY_RESET_RTS_HOLD: Duration = Duration::from_secs(4);
 
-/// Settle time after releasing RTS before the software reconfigure (C++ ~500 ms).
+/// Settle time after releasing RTS before the software reconfigure.
 pub const FACTORY_RESET_SETTLE: Duration = Duration::from_millis(500);
 
-/// Extra wait after the RTS pulse before the software reconfigure (C++ ~1 s).
+/// Extra wait after the RTS pulse before the software reconfigure.
 pub const FACTORY_RESET_POST_SETTLE: Duration = Duration::from_secs(1);
 
-/// `resetChip` delays (C++): 100 ms after the first reset, 50 ms after the
-/// config, 200 ms for the chip to restart after the final reset.
+/// Reset sequence delays: 100 ms after the first reset, 50 ms after the config,
+/// 200 ms for the chip to restart after the final reset.
 const RESET_CHIP_AFTER_RESET: Duration = Duration::from_millis(100);
 const RESET_CHIP_AFTER_CFG: Duration = Duration::from_millis(50);
 const RESET_CHIP_AFTER_FINAL: Duration = Duration::from_millis(200);
 
 /// Sends the CH9329 software/HID reset command (`CMD 0x0F`) on `transport`.
 ///
-/// This is the lightweight "reset HID" operation (C++ `Serial::resetHID`): it
-/// re-initializes the chip's HID state without the RTS power-cycle.
+/// This is the lightweight "reset HID" operation: it re-initializes the chip's
+/// HID state without the RTS power-cycle.
 pub fn reset_hid<T: SerialTransport>(transport: &mut T) -> Result<()> {
     transport.write_all(&ch9329::software_reset())
 }
 
-/// Resets and reconfigures the CH9329 to **mode 0x82 / 115200** (C++
-/// `resetChip`): software reset, [`ch9329::set_para_cfg`], then a final reset to
-/// apply, with the same inter-step delays. `sleep` is injected for tests.
+/// Resets and reconfigures the CH9329 to **mode 0x82 / 115200**: software reset,
+/// [`ch9329::set_para_cfg`], then a final reset to apply. `sleep` is injected
+/// for tests.
 pub fn reset_chip<T, S>(transport: &mut T, mut sleep: S) -> Result<()>
 where
     T: SerialTransport,
@@ -153,11 +153,11 @@ where
     Ok(())
 }
 
-/// Performs a full CH9329 **factory reset** (C++ `factoryReset`): pulses RTS
-/// high for `rts_hold` (hardware reset), releases it, waits `settle` then an
-/// extra [`FACTORY_RESET_POST_SETTLE`], and finally runs [`reset_chip`] to
-/// reconfigure the chip to mode 0x82 / 115200. The `sleep` function is injected
-/// so tests run without real delays; production passes [`std::thread::sleep`].
+/// Performs a full CH9329 **factory reset**: pulses RTS high for `rts_hold`
+/// (hardware reset), releases it, waits `settle` then an extra
+/// [`FACTORY_RESET_POST_SETTLE`], and finally runs [`reset_chip`] to reconfigure
+/// the chip to mode 0x82 / 115200. The `sleep` function is injected so tests run
+/// without real delays; production passes [`std::thread::sleep`].
 ///
 /// Use [`FACTORY_RESET_RTS_HOLD`] / [`FACTORY_RESET_SETTLE`] for the standard
 /// durations.

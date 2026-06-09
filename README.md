@@ -1,22 +1,21 @@
 # openterface-rs
 
-A native-Linux, Wayland-only, Qt-free reimplementation of the
-[Openterface Mini-KVM](https://openterface.com) host application, written entirely
-in **Rust**.
+A native-Linux, Wayland-only host application for the
+[Openterface Mini-KVM](https://openterface.com), written entirely in **Rust**.
 
 openterface-rs lets you control a target computer's **keyboard, video, and mouse**
 over a single USB connection — no network required — using the Openterface
 hardware (MS2109 HDMI capture + CH9329 USB-serial HID bridge).
 
-> **Status:** v1.0 targets **core-KVM parity** with the C++ CLI — video plus
-> keyboard/mouse over one USB cable. Real-hardware validation runs in a VM via
-> the closed-loop harness. See [`PLAN.md`](PLAN.md) for the roadmap and
+> **Status:** v1.0 targets the core KVM workflow — video plus keyboard/mouse over
+> one USB cable. Real-hardware validation runs in a VM via the closed-loop
+> harness. See [`PLAN.md`](PLAN.md) for the roadmap and
 > [`docs/`](docs/README.md) for full documentation.
 
-## Why a Rust port?
+## Why Rust?
 
-- **Fast builds, lean dependencies, no Qt.** A device-agnostic core library
-  plus a thin CLI and an optional `winit`/`wgpu` display frontend.
+- **Fast builds and lean dependencies.** A device-agnostic core library plus a
+  thin CLI and an optional `winit`/`wgpu` display frontend.
 - **Testable without hardware.** Every hardware interaction is a trait, so the
   full pipeline runs against simulated devices — the test-suite needs no device.
 - **Linux + Wayland native.** No XWayland.
@@ -100,13 +99,14 @@ Full docs live in [`docs/`](docs/README.md): the
 [troubleshooting](docs/how-to/troubleshooting.md) guides, and the
 [architecture](ARCHITECTURE.md) explanation.
 
+## Acknowledgements
+
+Thanks to the author of the original C++ Openterface version for pioneering the
+hardware support that made this Rust implementation possible.
+
 ## License
 
 Licensed under the [Apache License, Version 2.0](LICENSE).
-
-This is an independent reimplementation. It implements the same non-copyrightable
-hardware protocols (CH9329, MS2109) as the C++ Openterface CLIs; it is not a
-derivative of, and copies no source from, the GPL/AGPL Qt application.
 
 ## Contributing
 

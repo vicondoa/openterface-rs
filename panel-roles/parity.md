@@ -1,7 +1,8 @@
 # Reviewer: `parity`
 
 **Focus — feature-completeness gate.** Validates that openterface-rs supports
-**every** capability of the C++ Openterface CLI before the project is "done".
+the full v1.0 command, protocol, video, display, and integration scope before
+the project is "done".
 
 **Checklist (must all be present and tested).**
 - **Commands/flags:** `connect` (`--video`, `--serial`, `--no-video`,

@@ -1,5 +1,5 @@
 {
-  description = "openterface-rs — native-Linux, Wayland-only Rust port of the Openterface Mini-KVM";
+  description = "openterface-rs — native-Linux, Wayland-only Rust host application for the Openterface Mini-KVM";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -58,7 +58,7 @@
           '';
 
           meta = with pkgs.lib; {
-            description = "Native-Linux, Wayland-only, Qt-free Rust port of the Openterface Mini-KVM";
+            description = "Native-Linux, Wayland-only Rust host application for the Openterface Mini-KVM";
             homepage = "https://github.com/vicondoa/openterface-rs";
             license = licenses.asl20;
             platforms = platforms.linux;

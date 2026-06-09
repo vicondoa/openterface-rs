@@ -6,13 +6,13 @@ the `work-ssd` nixling VM over USB/IP (`nixling usb attach`), where the real
 V4L2 node and the closed-loop harness run. This note fixes the capture design so
 W2.3 (decode) and W2.5 (video source) can proceed against synthetic fixtures.
 
-## Known hardware facts (from the C++ implementation + docs)
+## Known hardware facts
 
 - The capture endpoint is an **MS2109** UVC device: driver **`uvcvideo`**,
   advertising **MJPG** and **YUYV**, USB id `345f:2109`.
 - In a VM there are several `/dev/video*` nodes; only the `uvcvideo`+MJPG one is
   the KVM. The virtio-media decoder adapter (often `/dev/video0`) must be
-  **skipped** (see `cpp-cli-behavior.md` discovery section).
+  **skipped**.
 - Resolution / frame-rate matrix (from `FEATURES.md`): 640×480 … 1920×1080,
   with per-resolution Hz ranges; default capture is **1920×1080 @ 30, MJPG**.
 
@@ -28,8 +28,7 @@ W2.3 (decode) and W2.5 (video source) can proceed against synthetic fixtures.
   3. **MJPG** fallbacks: `1920×1080@30` → `1280×720@30` → highest MJPG mode;
   4. **YUYV** fallback (last resort, high bandwidth) at the closest resolution.
   The chosen mode and the reason for any fallback are surfaced via
-  `active_config()` and logged (the C++ silently re-selects; we make it
-  observable).
+  `active_config()` and logged.
 - **Streaming:** MMAP capture buffers. For v1 the encoded/packed payload is
   **copied** out of the mapped buffer into the owned `Frame::data` (`Vec<u8>`)
   before the buffer is requeued; zero-copy/loaned frames are a future

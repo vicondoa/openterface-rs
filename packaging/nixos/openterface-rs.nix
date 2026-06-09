@@ -1,7 +1,6 @@
 # Build the openterface-rs binary on NixOS without the flake, using a pinned
-# source revision. This is the reference derivation for integrating openterface-rs
-# into a system configuration (e.g. a microVM), and the template that replaces a
-# CMake/C++ `openterface` derivation.
+# source revision. This is the reference derivation for integrating
+# openterface-rs into a system configuration (e.g. a microVM).
 #
 # winit + wgpu dlopen Wayland + Vulkan at runtime, so the binary MUST be wrapped
 # with LD_LIBRARY_PATH (a plain rpath is not enough for dlopen).
@@ -75,7 +74,7 @@ rustPlatform.buildRustPackage {
   '';
 
   meta = with lib; {
-    description = "Native-Linux, Wayland-only, Qt-free Rust port of the Openterface Mini-KVM";
+    description = "Native-Linux, Wayland-only Rust host application for the Openterface Mini-KVM";
     homepage = "https://github.com/vicondoa/openterface-rs";
     license = licenses.asl20;
     platforms = platforms.linux;

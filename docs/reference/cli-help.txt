@@ -1,7 +1,7 @@
 # openterface-rs CLI — help snapshots (W1.4 contract)
 #
-# Generated from `openterface-rs <cmd> --help`. This is the parity contract
-# with the C++ Openterface CLI; regenerate if the surface changes.
+# Generated from `openterface-rs <cmd> --help`. Regenerate if the command
+# surface changes.
 
 $ openterface-rs --help
 Openterface USB KVM CLI — control a target's keyboard, video, and mouse over USB.

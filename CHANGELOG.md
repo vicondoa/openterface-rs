@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- Dependabot configuration for weekly GitHub Actions updates with a 14-day
+  cooldown.
+
+### Changed
+- Removed historical implementation-comparison wording from docs and comments.
+
 ## [1.0.2] - 2026-06-08
 
 ### Added
@@ -37,10 +44,10 @@ All notable changes to this project are documented here. The format is based on
 
 ## [1.0.0] - 2026-06-08
 
-openterface-rs is a native-Linux, Wayland-only, Qt-free Rust reimplementation of
-the Openterface Mini-KVM host CLI, at **core-KVM parity** with the C++ CLI (video
-+ keyboard/mouse over one USB cable). Hardware-validated in the work-ssd VM
-(device discovery, live capture, and CH9329 injection moving the target cursor).
+openterface-rs is a native-Linux, Wayland-only Rust host application for the
+Openterface Mini-KVM: video plus keyboard/mouse over one USB cable.
+Hardware-validated in the work-ssd VM (device discovery, live capture, and
+CH9329 injection moving the target cursor).
 
 ### Added
 - **CLI** (`openterface-rs`): `connect` (with `--video`/`--serial`/`--no-serial`/
@@ -78,13 +85,13 @@ the Openterface Mini-KVM host CLI, at **core-KVM parity** with the C++ CLI (vide
   device-agnostic interface contracts (`SerialTransport`, `VideoSource`,
   `DeviceScanner`).
 
-### Known deviations from the C++ CLI
-- Runtime failures exit **`1`** (not the C++ `0`); usage errors exit `2`.
+### Behavior notes
+- Runtime failures exit **`1`**; usage errors exit `2`.
 - `status` is detection-based rather than in-process connection state.
-- No auto "GUI-only" window when no device is found: `connect` errors instead
-  (use `--dummy` for a deviceless window).
-- `OPENTERFACE_USE_LIBDECOR=0` falls back to a bare xdg-shell window; full
-  CSD/SSD negotiation parity beyond that is best-effort under winit.
+- No auto window when no device is found: `connect` errors instead (use `--dummy`
+  for a deviceless window).
+- `OPENTERFACE_USE_LIBDECOR=0` falls back to a bare xdg-shell window; decoration
+  negotiation is handled by winit.
 
 [Unreleased]: https://github.com/vicondoa/openterface-rs/compare/v1.0.2...HEAD
 [1.0.2]: https://github.com/vicondoa/openterface-rs/compare/v1.0.1...v1.0.2

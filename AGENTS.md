@@ -51,10 +51,10 @@ The 10-engineer roster (role briefs in [`panel-roles/`](panel-roles)):
 | `input` | Wayland input capture (niri/CSD), xkb→HID mapping, modifiers, focus/grab, rel-vs-abs, pacing/release-ordering. |
 | `test` | No-hardware guarantee, simulation + fault injection, property tests, the closed-loop harness, regressions. |
 | `security` | udev/permissions, input-injection trust boundary, harness lock-screen safety, supply chain, `unsafe`. |
-| `product` | Operator UX, CLI/flag + env-var parity, error messages, packaging, end-user docs. |
+| `product` | Operator UX, CLI/flag + env-var completeness, error messages, packaging, end-user docs. |
 | `docs` | Diataxis docs, README/CHANGELOG/ARCHITECTURE, rustdoc, ADRs. |
 | `build-ci` | Build speed, CI gates, cross-compile (x86_64 + aarch64), Nix derivation, release automation. |
-| `parity` | **Feature-completeness gate** vs the C++ CLI: every command/flag and every shipped behavior. |
+| `parity` | **Feature-completeness gate**: every command/flag and every shipped behavior in the v1.0 scope. |
 
 Each wave selects the relevant subset; the gate is unanimous over the selected
 set (`N/N`). The final wave (W6 / Definition of Done) uses the **full 10/10**
