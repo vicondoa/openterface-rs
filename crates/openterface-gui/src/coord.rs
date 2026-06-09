@@ -1,8 +1,8 @@
 //! Window → target coordinate mapping (pure, always built).
 //!
 //! Maps a pointer position inside the content area to the CH9329 absolute
-//! coordinate space (`0..=4095` per axis), matching the C++ behavior of mapping
-//! window coordinates to the target and clamping.
+//! coordinate space (`0..=4095` per axis), mapping window coordinates to the
+//! target and clamping.
 
 use openterface_core::event::{AbsPosition, ABS_MAX};
 

@@ -39,15 +39,13 @@ A display session needs the `hardware` feature (see
 [build](../how-to/build.md)); a binary built without it can still run `scan`
 and `status`.
 
-> **Parity note (exit codes).** Unlike the C++ CLI (which exits `0` even on
-> runtime failure), openterface-rs exits **`1`** when a device is not found, a
-> connection fails, or a reset fails — silently exiting `0` on failure is a
-> scripting footgun. Usage errors exit `2`; `--help`/`--version` exit `0`.
+> **Behavior note (exit codes).** openterface-rs exits **`1`** when a device is
+> not found, a connection fails, or a reset fails. Usage errors exit `2`;
+> `--help`/`--version` exit `0`.
 
-> **Parity note (no device).** The C++ CLI opens a "GUI-only" window when no
-> device is found; openterface-rs instead **errors** (exit `1`) with a hint to
-> run `scan` — a clearer signal for a KVM tool than a blank window. Use
-> `connect --dummy` for a deviceless window.
+> **Behavior note (no device).** When no device is found, openterface-rs
+> **errors** (exit `1`) with a hint to run `scan`. Use `connect --dummy` for a
+> deviceless window.
 
 ## `scan`
 
@@ -66,9 +64,8 @@ Show detected device status.
 openterface-rs status
 ```
 
-> **Parity note.** The C++ `status` prints in-process connection state; the Rust
-> `status` is detection-based (it reports what is currently present). Tracked for
-> the parity gate.
+> **Behavior note.** `status` is detection-based: it reports what is currently
+> present.
 
 ## `reset`
 

@@ -155,7 +155,7 @@ fn reset_impl(serial: &Path) -> ExitCode {
         return ExitCode::Failure;
     }
     // Hardware factory reset: pulse RTS high ~4s, release, settle, then software
-    // reconfigure to mode 0x82 / 115200 (C++ parity). This blocks for ~6s.
+    // reconfigure to mode 0x82 / 115200. This blocks for ~6s.
     println!("Performing factory reset (RTS pulse + reconfigure, ~6s)...");
     if let Err(e) = factory_reset(
         &mut transport,
@@ -253,8 +253,7 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
         Box::new(NullSerial)
     };
 
-    // --no-video: an input-only session with a blank window for input capture
-    // (C++ parity: the GUI still forwards keyboard/mouse, no video is shown).
+    // --no-video: an input-only session with a blank window for input capture.
     if args.no_video {
         let session = match Session::start_input_only(serial, PacingConfig::from_env()) {
             Ok(s) => s,

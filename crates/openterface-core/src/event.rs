@@ -153,7 +153,7 @@ pub enum InputEvent {
     /// Release **all** held keys, modifiers, and mouse buttons.
     ///
     /// Sent when the window loses focus or the pointer leaves, so the target
-    /// never sees a key/button stuck down (matching the C++ focus-loss release).
+    /// never sees a key/button stuck down.
     ReleaseAll,
 }
 

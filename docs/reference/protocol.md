@@ -2,10 +2,9 @@
 
 This describes the CH9329 serial command framing that openterface-rs implements
 in `openterface_core::protocol::ch9329`. It is independently authored from
-observed hardware behavior and the [behavioral spec](cpp-cli-behavior.md); no
-third-party source is copied. The CH9329 is a USB-serial HID bridge: the host
-sends framed commands over the serial link and the chip emits USB HID reports to
-the target.
+observed hardware behavior; no third-party source is copied. The CH9329 is a
+USB-serial HID bridge: the host sends framed commands over the serial link and
+the chip emits USB HID reports to the target.
 
 ## Frame format
 

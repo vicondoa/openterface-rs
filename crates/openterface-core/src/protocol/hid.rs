@@ -1,7 +1,6 @@
 //! USB HID usage tables and key mapping.
 //!
-//! Two paths, matching the C++ implementation (see
-//! `docs/reference/cpp-cli-behavior.md` -> keyboard translation):
+//! Two paths:
 //!
 //! - **physical-key forwarding** - a Linux evdev scancode -> USB HID usage table
 //!   ([`evdev_to_hid`]), so the target sees the same *physical* key regardless
@@ -44,91 +43,90 @@ pub fn modifier_bit(usage: HidUsage) -> Option<Modifiers> {
 #[must_use]
 pub fn evdev_to_hid(code: u16) -> Option<HidUsage> {
     let usage: u8 = match code {
-        1 => 0x29,  // Esc
-        2 => 0x1E,  // 1
-        3 => 0x1F,  // 2
-        4 => 0x20,  // 3
-        5 => 0x21,  // 4
-        6 => 0x22,  // 5
-        7 => 0x23,  // 6
-        8 => 0x24,  // 7
-        9 => 0x25,  // 8
-        10 => 0x26, // 9
-        11 => 0x27, // 0
-        12 => 0x2D, // -
-        13 => 0x2E, // =
-        14 => 0x2A, // Backspace
-        15 => 0x2B, // Tab
-        16 => 0x14, // q
-        17 => 0x1A, // w
-        18 => 0x08, // e
-        19 => 0x15, // r
-        20 => 0x17, // t
-        21 => 0x1C, // y
-        22 => 0x18, // u
-        23 => 0x0C, // i
-        24 => 0x12, // o
-        25 => 0x13, // p
-        26 => 0x2F, // [
-        27 => 0x30, // ]
-        28 => 0x28, // Enter
-        29 => 0xE0, // LeftCtrl
-        30 => 0x04, // a
-        31 => 0x16, // s
-        32 => 0x07, // d
-        33 => 0x09, // f
-        34 => 0x0A, // g
-        35 => 0x0B, // h
-        36 => 0x0D, // j
-        37 => 0x0E, // k
-        38 => 0x0F, // l
-        39 => 0x33, // ;
-        40 => 0x34, // '
-        41 => 0x35, // `
-        42 => 0xE1, // LeftShift
-        43 => 0x32, // backslash (C++ table maps KEY_BACKSLASH to Non-US 0x32)
-        44 => 0x1D, // z
-        45 => 0x1B, // x
-        46 => 0x06, // c
-        47 => 0x19, // v
-        48 => 0x05, // b
-        49 => 0x11, // n
-        50 => 0x10, // m
-        51 => 0x36, // ,
-        52 => 0x37, // .
-        53 => 0x38, // /
-        54 => 0xE5, // RightShift
-        55 => 0x55, // KP *
-        56 => 0xE2, // LeftAlt
-        57 => 0x2C, // Space
-        58 => 0x39, // CapsLock
-        59 => 0x3A, // F1
-        60 => 0x3B, // F2
-        61 => 0x3C, // F3
-        62 => 0x3D, // F4
-        63 => 0x3E, // F5
-        64 => 0x3F, // F6
-        65 => 0x40, // F7
-        66 => 0x41, // F8
-        67 => 0x42, // F9
-        68 => 0x43, // F10
-        69 => 0x53, // NumLock
-        70 => 0x47, // ScrollLock
-        71 => 0x5F, // KP 7
-        72 => 0x60, // KP 8
-        73 => 0x61, // KP 9
-        74 => 0x56, // KP -
-        75 => 0x5C, // KP 4
-        76 => 0x5D, // KP 5
-        77 => 0x5E, // KP 6
-        78 => 0x57, // KP +
-        79 => 0x59, // KP 1
-        80 => 0x5A, // KP 2
-        81 => 0x5B, // KP 3
-        82 => 0x62, // KP 0
-        83 => 0x63, // KP .
-        86 => 0x64, // KEY_102ND: ISO extra key — intentional additive divergence
-        // from the C++ table (which omits it); see cpp-cli-behavior.md.
+        1 => 0x29,   // Esc
+        2 => 0x1E,   // 1
+        3 => 0x1F,   // 2
+        4 => 0x20,   // 3
+        5 => 0x21,   // 4
+        6 => 0x22,   // 5
+        7 => 0x23,   // 6
+        8 => 0x24,   // 7
+        9 => 0x25,   // 8
+        10 => 0x26,  // 9
+        11 => 0x27,  // 0
+        12 => 0x2D,  // -
+        13 => 0x2E,  // =
+        14 => 0x2A,  // Backspace
+        15 => 0x2B,  // Tab
+        16 => 0x14,  // q
+        17 => 0x1A,  // w
+        18 => 0x08,  // e
+        19 => 0x15,  // r
+        20 => 0x17,  // t
+        21 => 0x1C,  // y
+        22 => 0x18,  // u
+        23 => 0x0C,  // i
+        24 => 0x12,  // o
+        25 => 0x13,  // p
+        26 => 0x2F,  // [
+        27 => 0x30,  // ]
+        28 => 0x28,  // Enter
+        29 => 0xE0,  // LeftCtrl
+        30 => 0x04,  // a
+        31 => 0x16,  // s
+        32 => 0x07,  // d
+        33 => 0x09,  // f
+        34 => 0x0A,  // g
+        35 => 0x0B,  // h
+        36 => 0x0D,  // j
+        37 => 0x0E,  // k
+        38 => 0x0F,  // l
+        39 => 0x33,  // ;
+        40 => 0x34,  // '
+        41 => 0x35,  // `
+        42 => 0xE1,  // LeftShift
+        43 => 0x32,  // backslash
+        44 => 0x1D,  // z
+        45 => 0x1B,  // x
+        46 => 0x06,  // c
+        47 => 0x19,  // v
+        48 => 0x05,  // b
+        49 => 0x11,  // n
+        50 => 0x10,  // m
+        51 => 0x36,  // ,
+        52 => 0x37,  // .
+        53 => 0x38,  // /
+        54 => 0xE5,  // RightShift
+        55 => 0x55,  // KP *
+        56 => 0xE2,  // LeftAlt
+        57 => 0x2C,  // Space
+        58 => 0x39,  // CapsLock
+        59 => 0x3A,  // F1
+        60 => 0x3B,  // F2
+        61 => 0x3C,  // F3
+        62 => 0x3D,  // F4
+        63 => 0x3E,  // F5
+        64 => 0x3F,  // F6
+        65 => 0x40,  // F7
+        66 => 0x41,  // F8
+        67 => 0x42,  // F9
+        68 => 0x43,  // F10
+        69 => 0x53,  // NumLock
+        70 => 0x47,  // ScrollLock
+        71 => 0x5F,  // KP 7
+        72 => 0x60,  // KP 8
+        73 => 0x61,  // KP 9
+        74 => 0x56,  // KP -
+        75 => 0x5C,  // KP 4
+        76 => 0x5D,  // KP 5
+        77 => 0x5E,  // KP 6
+        78 => 0x57,  // KP +
+        79 => 0x59,  // KP 1
+        80 => 0x5A,  // KP 2
+        81 => 0x5B,  // KP 3
+        82 => 0x62,  // KP 0
+        83 => 0x63,  // KP .
+        86 => 0x64,  // KEY_102ND: ISO extra key
         87 => 0x44,  // F11
         88 => 0x45,  // F12
         96 => 0x58,  // KP Enter
@@ -237,7 +235,7 @@ mod tests {
         assert_eq!(evdev_to_hid(103), Some(HidUsage(0x52))); // Up
         assert_eq!(evdev_to_hid(111), Some(HidUsage(0x4C))); // Delete
         assert_eq!(evdev_to_hid(29), Some(HidUsage(0xE0))); // LeftCtrl
-        assert_eq!(evdev_to_hid(43), Some(HidUsage(0x32))); // backslash (C++ parity)
+        assert_eq!(evdev_to_hid(43), Some(HidUsage(0x32))); // backslash
         assert_eq!(evdev_to_hid(86), Some(HidUsage(0x64))); // KEY_102ND (ISO)
         assert_eq!(evdev_to_hid(0xFFFF), None);
     }

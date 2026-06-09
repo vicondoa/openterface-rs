@@ -1,8 +1,7 @@
 //! The idle MJPEG-decode throttle state machine (pure, always built).
 //!
-//! Decoding every frame of a static remote screen wastes CPU. This reproduces
-//! the C++ fork's behavior (see `docs/explanation/wgpu-spike.md` and
-//! `docs/reference/cpp-cli-behavior.md`):
+//! Decoding every frame of a static remote screen wastes CPU. The throttle uses
+//! this state machine:
 //!
 //! 1. **Raw dedup** — byte-identical encoded frames skip decode *and* upload.
 //! 2. **Non-deterministic MJPEG** — after a decode, identical *decoded* pixels
@@ -21,7 +20,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
-/// Environment variables controlling the throttle (defaults match the C++ fork).
+/// Environment variables controlling the throttle.
 pub const ENV_THROTTLE: &str = "OPENTERFACE_THROTTLE";
 pub const ENV_IDLE_DECODE_MS: &str = "OPENTERFACE_IDLE_DECODE_MS";
 pub const ENV_INPUT_WAKE_MS: &str = "OPENTERFACE_INPUT_WAKE_MS";

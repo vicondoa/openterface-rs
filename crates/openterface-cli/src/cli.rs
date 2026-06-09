@@ -1,10 +1,7 @@
 //! The `openterface-rs` command-line interface contract.
 //!
-//! This module defines the clap command/flag surface at **parity with the C++
-//! Openterface CLI** (`connect` / `scan` / `status` / `reset`, the global
-//! `-v/--verbose`, and `--version`). Wave W1.4 establishes and snapshots this
-//! contract; the command *implementations* are filled in by W4.1/W5. Until then
-//! each subcommand runs a stub that reports it is not yet implemented.
+//! This module defines the clap command/flag surface (`connect` / `scan` /
+//! `status` / `reset`, the global `-v/--verbose`, and `--version`).
 
 use std::path::PathBuf;
 
@@ -27,7 +24,7 @@ impl From<ExitCode> for std::process::ExitCode {
     }
 }
 
-/// Openterface USB KVM — native-Linux, Wayland-only Rust port.
+/// Openterface USB KVM — native-Linux, Wayland-only Rust implementation.
 #[derive(Parser, Debug)]
 #[command(
     name = "openterface-rs",
@@ -39,8 +36,7 @@ pub(crate) struct Cli {
     /// Print version.
     //
     // Root-only, long-form `--version` (no `-V` short, not propagated to
-    // subcommands) to match the C++ CLI's single `--version` surface. The
-    // version string is openterface-rs's own (not the C++ `1.0.0`).
+    // subcommands).
     #[arg(long, action = clap::ArgAction::Version)]
     pub version: Option<bool>,
 
@@ -52,7 +48,7 @@ pub(crate) struct Cli {
     pub command: Command,
 }
 
-/// The top-level subcommands (parity with the C++ CLI).
+/// The top-level KVM subcommands.
 #[derive(Subcommand, Debug)]
 pub(crate) enum Command {
     /// Connect to KVM device (auto-discovers devices if none specified).
@@ -101,9 +97,9 @@ pub(crate) struct ConnectArgs {
 pub(crate) struct ResetArgs {
     /// Serial device path (required for reset).
     //
-    // Kept optional at the parser level to match the C++ CLI, which validates
-    // presence in the handler and prints usage (wired in W4.1). A `//` comment
-    // (not `///`) so this rationale is not rendered in `--help`.
+    // Kept optional at the parser level: the handler validates presence and
+    // prints usage. A `//` comment (not `///`) so this rationale is not rendered
+    // in `--help`.
     #[arg(long, value_name = "PATH")]
     pub serial: Option<PathBuf>,
 }
@@ -117,7 +113,7 @@ impl Cli {
 
     /// Runs the parsed command.
     pub(crate) fn run(self) -> ExitCode {
-        // C++ parity: every callback prints this banner first when verbose.
+        // The command contract prints this banner before command output.
         if self.verbose {
             println!("Verbose mode enabled");
         }
@@ -205,8 +201,8 @@ mod tests {
 
     #[test]
     fn reset_serial_is_optional_at_parse_time() {
-        // Matches the C++ CLI: `--serial` is validated in the handler (W4.1),
-        // not by the parser, so `reset` parses with `serial == None`.
+        // `--serial` is validated in the handler, not by the parser, so `reset`
+        // parses with `serial == None`.
         let cli = Cli::try_parse_from(["openterface-rs", "reset"]).unwrap();
         let Command::Reset(args) = cli.command else {
             panic!("expected reset");
@@ -238,14 +234,14 @@ mod tests {
 
     #[test]
     fn no_short_version_alias() {
-        // The C++ CLI exposes only `--version`; `-V` must not be accepted.
+        // Only `--version` is exposed; `-V` must not be accepted.
         let err = Cli::try_parse_from(["openterface-rs", "-V"]).unwrap_err();
         assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument);
     }
 
     #[test]
     fn version_is_not_propagated_to_subcommands() {
-        // C++ subcommands do not accept `--version`; only the root does.
+        // Subcommands do not accept `--version`; only the root does.
         let err = Cli::try_parse_from(["openterface-rs", "scan", "--version"]).unwrap_err();
         assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument);
     }

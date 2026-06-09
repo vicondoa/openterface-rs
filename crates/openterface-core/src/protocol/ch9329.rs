@@ -5,7 +5,7 @@
 //! **pure** (no I/O); the pacing scheduler ([`crate::pacing`]) decides *when* to
 //! write them and the serial transport ([`crate::serial`]) writes the bytes.
 //!
-//! Layouts (see `docs/reference/cpp-cli-behavior.md`):
+//! Layouts:
 //! - **Absolute mouse** — `CMD=0x04`, data `02 <buttons> <xLo> <xHi> <yLo>
 //!   <yHi> <wheel>`, X/Y in `0..=4095` little-endian.
 //! - **Relative mouse** — `CMD=0x05`, data `01 <buttons> <dx> <dy> <wheel>`,
@@ -41,9 +41,8 @@ pub mod cmd {
 }
 
 /// The 50-byte `SET_PARA_CFG` payload that restores the CH9329 to **mode 0x82**
-/// (protocol-transfer USB keyboard+mouse) at **115200 baud** — copied verbatim
-/// from the C++ `resetChip` reconfiguration so the bytes are known-good for this
-/// hardware.
+/// (protocol-transfer USB keyboard+mouse) at **115200 baud**. The bytes are the
+/// known-good parameter block for this hardware.
 const PARA_CFG_MODE_82: [u8; 50] = [
     0x82, 0x80, 0x00, 0x00, 0x00, 0x01, 0xC2, 0x00, 0x08, 0x00, 0x00, 0x03, 0x86, 0x1A, 0x29, 0xE1,
     0x00, 0x00, 0x00, 0x01, 0x00, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -52,8 +51,7 @@ const PARA_CFG_MODE_82: [u8; 50] = [
 ];
 
 /// Builds the `SET_PARA_CFG` command (`CMD 0x09`) that restores the CH9329 to
-/// mode 0x82 (USB keyboard+mouse) at 115200 baud, matching the C++ reset
-/// reconfiguration.
+/// mode 0x82 (USB keyboard+mouse) at 115200 baud.
 #[must_use]
 pub fn set_para_cfg() -> Vec<u8> {
     frame(cmd::SET_PARA_CFG, &PARA_CFG_MODE_82)
@@ -153,8 +151,7 @@ pub fn keyboard_release() -> Vec<u8> {
 
 /// Builds the sequence of CH9329 keyboard frames that "types" `text`: for each
 /// mappable character, a key-press report (with any needed modifier) followed
-/// by an all-keys-released report. Unmappable characters are skipped. This is
-/// the C++ `Serial::sendText` behavior.
+/// by an all-keys-released report. Unmappable characters are skipped.
 #[must_use]
 pub fn text_to_reports(text: &str) -> Vec<Vec<u8>> {
     let mut out = Vec::new();

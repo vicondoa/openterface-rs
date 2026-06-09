@@ -37,7 +37,7 @@ fn no_subcommand_is_usage_error() {
 
 #[test]
 fn short_version_flag_is_rejected() {
-    // Only `--version` exists (C++ parity); `-V` is an unknown argument.
+    // Only `--version` exists; `-V` is an unknown argument.
     bin().arg("-V").assert().code(2);
 }
 
@@ -61,7 +61,7 @@ fn status_runs_and_exits_zero() {
 
 #[test]
 fn verbose_prints_banner() {
-    // C++ parity: `-v` prints "Verbose mode enabled" before the command body.
+    // `-v` prints "Verbose mode enabled" before the command body.
     bin()
         .args(["-v", "scan"])
         .assert()
