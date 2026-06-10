@@ -22,6 +22,7 @@ openterface-gui = { path = "crates/openterface-gui", version = "1.0.2" }
 openterface-test-support = { path = "crates/openterface-test-support", version = "1.0.2" }
 thiserror = "1"
 tracing = "0.1"
+zeroize = "1"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "warn"

@@ -51,8 +51,17 @@ openterface-rs connect     # open the KVM session (auto-detects)
 openterface-rs reset --serial /dev/ttyACM0   # CH9329 factory reset
 ```
 
+While the session window is focused, `Ctrl+Shift+V` pastes the **local**
+Wayland clipboard to the target by typing it as HID keystrokes. This is not
+target clipboard sync; unsupported non-US-layout characters are reported and
+skipped. Middle-click is forwarded normally by default, and can optionally be
+configured as a host-side primary-selection or clipboard paste. Because the
+paste shortcut is host-local, it is not forwarded to the target while paste is
+enabled; set `OPENTERFACE_PASTE_SHORTCUT` (for example `ctrl-alt-shift-v`) or
+`OPENTERFACE_ENABLE_PASTE=0` if you need `Ctrl+Shift+V` inside the target.
+
 Runtime behavior is tunable via `OPENTERFACE_*` environment variables (mouse
-pacing, idle-decode throttling, fullscreen) — see the
+pacing, idle-decode throttling, fullscreen, paste controls) — see the
 [CLI reference](docs/reference/cli.md) and
 [environment variables](docs/reference/env-vars.md).
 

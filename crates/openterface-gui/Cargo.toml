@@ -16,7 +16,15 @@ categories = ["gui", "hardware-support"]
 # coordinate/throttle logic builds and tests with no winit/wgpu/system libs;
 # the release/Nix build enables it. A `gpu-tests` sub-gate runs the headless
 # render test only where a (software) adapter is available.
-display = ["dep:winit", "dep:wgpu", "dep:pollster", "dep:raw-window-handle", "dep:bytemuck"]
+display = [
+    "dep:winit",
+    "dep:wgpu",
+    "dep:pollster",
+    "dep:raw-window-handle",
+    "dep:bytemuck",
+    "dep:smithay-clipboard",
+    "dep:zeroize",
+]
 gpu-tests = ["display"]
 
 [dependencies]
@@ -27,6 +35,8 @@ wgpu = { version = "22", optional = true }
 pollster = { version = "0.3", optional = true }
 raw-window-handle = { version = "0.6", optional = true }
 bytemuck = { version = "1", features = ["derive"], optional = true }
+smithay-clipboard = { version = "0.7", default-features = false, features = ["dlopen"], optional = true }
+zeroize = { workspace = true, optional = true }
 
 [lints]
 workspace = true

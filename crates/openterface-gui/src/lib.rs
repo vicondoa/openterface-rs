@@ -13,10 +13,14 @@
 
 pub mod coord;
 pub mod fit;
+#[cfg(any(feature = "display", test))]
+pub(crate) mod paste;
 pub mod throttle;
 
 #[cfg(feature = "display")]
 mod app;
+#[cfg(feature = "display")]
+mod clipboard;
 #[cfg(feature = "display")]
 mod input_map;
 #[cfg(feature = "display")]

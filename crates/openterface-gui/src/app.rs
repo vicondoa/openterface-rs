@@ -6,10 +6,13 @@
 //! decode throttle, fullscreen, CSD) and keeps resize work off the input path.
 
 use std::sync::mpsc::Receiver;
+use std::time::Duration;
 use std::time::Instant;
 
 use openterface_core::decode::decode_frame;
-use openterface_core::event::{InputEvent, Modifiers};
+use openterface_core::event::{HidUsage, InputEvent, Modifiers, MouseButton};
+use openterface_core::pacing::DEFAULT_COMMAND_GAP;
+use openterface_core::paste::PasteOutcome;
 use openterface_core::protocol::hid::modifier_bit;
 use openterface_core::session::Session;
 use openterface_core::video::Frame;
@@ -19,9 +22,14 @@ use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::platform::wayland::WindowAttributesExtWayland;
 use winit::window::{Window, WindowId};
+use zeroize::Zeroize;
 
+use crate::clipboard::{ClipboardError, ClipboardReader};
 use crate::coord::{window_to_abs, window_to_abs_fit};
 use crate::input_map::{mouse_button, physical_to_hid};
+use crate::paste::{
+    chord_usages, is_paste_hotkey, MiddleClickPaste, PasteConfig, PasteSource, SuppressedKeys,
+};
 use crate::throttle::{FrameThrottle, ThrottleConfig};
 
 /// Configuration for [`run`].
@@ -37,6 +45,8 @@ pub struct RunConfig {
     pub title: String,
     /// Log each forwarded input event (`connect --debug`).
     pub debug: bool,
+    /// Whether serial input forwarding is backed by a real CH9329 transport.
+    pub input_available: bool,
 }
 
 /// Runs the display loop until the window is closed. Wayland-only.
@@ -54,10 +64,22 @@ struct GpuWindow {
     renderer: crate::renderer::Renderer,
 }
 
+struct TitleStatus {
+    message: String,
+    until: Option<Instant>,
+}
+
 struct App {
     cfg: RunConfig,
+    base_title: String,
     gpu: Option<GpuWindow>,
     throttle: FrameThrottle,
+    paste: PasteConfig,
+    suppressed_keys: SuppressedKeys,
+    clipboard: Option<ClipboardReader>,
+    paste_active_until: Option<Instant>,
+    title_status: Option<TitleStatus>,
+    suppress_middle_release: bool,
     /// The CH9329 modifier byte, tracked from physical modifier-key events so
     /// left/right modifiers (incl. AltGr) are preserved layout-independently.
     mod_byte: Modifiers,
@@ -76,10 +98,18 @@ struct App {
 
 impl App {
     fn new(cfg: RunConfig) -> Self {
+        let base_title = cfg.title.clone();
         Self {
             cfg,
+            base_title,
             gpu: None,
             throttle: FrameThrottle::new(ThrottleConfig::from_env()),
+            paste: PasteConfig::from_env(),
+            suppressed_keys: SuppressedKeys::default(),
+            clipboard: None,
+            paste_active_until: None,
+            title_status: None,
+            suppress_middle_release: false,
             mod_byte: Modifiers::NONE,
             start: Instant::now(),
             pending_resize: None,
@@ -102,7 +132,7 @@ impl App {
             // keyboard events to just the press/release edge. Mouse
             // motion/buttons/scroll are not sensitive.
             match &event {
-                InputEvent::Key { pressed, .. } => {
+                InputEvent::Key { pressed, .. } | InputEvent::PasteKey { pressed, .. } => {
                     tracing::info!(pressed = *pressed, "key event (redacted)")
                 }
                 other => tracing::info!(event = ?other, "input"),
@@ -118,6 +148,168 @@ impl App {
         if let Some(s) = &self.cfg.session {
             s.release_all();
         }
+    }
+
+    fn set_status(&mut self, message: impl Into<String>, linger: bool) {
+        let until = if linger {
+            None
+        } else {
+            Some(Instant::now() + Duration::from_secs(3))
+        };
+        self.set_status_until(message, until);
+    }
+
+    fn set_status_until(&mut self, message: impl Into<String>, until: Option<Instant>) {
+        self.title_status = Some(TitleStatus {
+            message: message.into(),
+            until,
+        });
+        self.update_title();
+    }
+
+    fn clear_expired_status(&mut self) {
+        let expired = self
+            .title_status
+            .as_ref()
+            .and_then(|status| status.until)
+            .is_some_and(|until| Instant::now() >= until);
+        if expired {
+            self.title_status = None;
+            self.update_title();
+        }
+        if self
+            .paste_active_until
+            .is_some_and(|until| Instant::now() >= until)
+        {
+            self.paste_active_until = None;
+        }
+    }
+
+    fn update_title(&self) {
+        if let Some(gpu) = self.gpu.as_ref() {
+            match self.title_status.as_ref() {
+                Some(status) => gpu
+                    .window
+                    .set_title(&format!("{} — {}", self.base_title, status.message)),
+                None => gpu.window.set_title(&self.base_title),
+            }
+        }
+    }
+
+    fn abort_paste(&mut self, message: &'static str) -> bool {
+        let had_active = self.paste_active_until.take().is_some();
+        if had_active {
+            self.mod_byte = Modifiers::NONE;
+            self.release_all();
+            self.set_status(message, true);
+            tracing::warn!(category = "aborted", "paste aborted");
+            true
+        } else {
+            false
+        }
+    }
+
+    fn start_paste(&mut self, source: PasteSource) {
+        self.mod_byte = Modifiers::NONE;
+        self.release_all();
+
+        if self.cfg.session.is_none() {
+            self.set_status("Paste warning: no active session", true);
+            tracing::warn!(category = "no-session", "paste rejected");
+            return;
+        }
+        if !self.cfg.input_available {
+            self.set_status("Paste warning: input forwarding unavailable", true);
+            tracing::warn!(category = "no-input", "paste rejected");
+            return;
+        }
+        let Some(reader) = self.clipboard.clone() else {
+            self.set_status("Paste warning: Wayland clipboard unavailable", true);
+            tracing::warn!(category = "clipboard-unavailable", "paste rejected");
+            return;
+        };
+
+        self.set_status(format!("Paste: reading {}", source.label()), false);
+        let result = match source {
+            PasteSource::Clipboard => reader.load_regular(),
+            PasteSource::Primary => reader.load_primary(),
+        };
+        self.handle_clipboard_result(result);
+    }
+
+    fn handle_clipboard_result(&mut self, result: Result<String, ClipboardError>) {
+        let mut text = match result {
+            Ok(text) => text,
+            Err(e) => {
+                self.set_status(format!("Paste warning: clipboard {}", e.category()), true);
+                tracing::warn!(category = e.category(), "paste failed");
+                return;
+            }
+        };
+
+        self.mod_byte = Modifiers::NONE;
+        self.release_all();
+        let outcome = self
+            .cfg
+            .session
+            .as_ref()
+            .map(|session| session.send_paste(&text, self.paste.max_chars))
+            .unwrap_or_default();
+        text.zeroize();
+
+        self.report_paste_outcome(outcome);
+    }
+
+    fn report_paste_outcome(&mut self, outcome: PasteOutcome) {
+        let stats = outcome.stats;
+        if outcome.reports > 0 {
+            self.paste_active_until = Some(Instant::now() + estimated_paste_duration(outcome));
+        }
+        if stats.submitted > 0 && (stats.truncated > 0 || stats.skipped > 0) {
+            self.set_status_until(
+                format!(
+                    "Pasting {} chars... skipped {}, truncated {} — Esc aborts",
+                    stats.submitted, stats.skipped, stats.truncated
+                ),
+                self.paste_active_until,
+            );
+            tracing::warn!(
+                submitted = stats.submitted,
+                skipped = stats.skipped,
+                truncated = stats.truncated,
+                "paste completed with warnings"
+            );
+        } else if stats.truncated > 0 || stats.skipped > 0 {
+            self.set_status(
+                format!(
+                    "Paste warning: no mappable text, skipped {}, truncated {}",
+                    stats.skipped, stats.truncated
+                ),
+                true,
+            );
+            tracing::warn!(
+                submitted = stats.submitted,
+                skipped = stats.skipped,
+                truncated = stats.truncated,
+                "paste completed with warnings"
+            );
+        } else if stats.submitted == 0 {
+            self.set_status("Paste warning: no mappable text", true);
+            tracing::warn!(
+                category = "no-mappable-text",
+                "paste completed with warnings"
+            );
+        } else {
+            self.set_status_until(
+                format!("Pasting {} chars... Esc aborts", stats.submitted),
+                self.paste_active_until,
+            );
+            tracing::info!(submitted = stats.submitted, "paste submitted");
+        }
+    }
+
+    fn teardown_clipboard(&mut self) {
+        self.clipboard = None;
     }
 
     /// Pulls any available capture frames, applying the idle-decode throttle,
@@ -248,6 +440,23 @@ impl ApplicationHandler for App {
             self.frame_size = Some((640, 360));
         }
 
+        self.clipboard = match ClipboardReader::from_window(&window) {
+            Ok(reader) => Some(reader),
+            Err(e) => {
+                tracing::warn!(
+                    category = e.category(),
+                    "focused Wayland clipboard unavailable"
+                );
+                None
+            }
+        };
+        tracing::info!(
+            enabled = self.paste.enabled,
+            max_chars = self.paste.max_chars,
+            shortcut = self.paste.shortcut.label(),
+            "focused paste shortcut"
+        );
+
         self.gpu = Some(GpuWindow {
             window,
             surface,
@@ -261,6 +470,7 @@ impl ApplicationHandler for App {
             WindowEvent::CloseRequested => {
                 // Release everything before tearing down the session so the
                 // target never sees input stuck down after the window closes.
+                let _ = self.abort_paste("Paste warning: aborted");
                 self.mod_byte = Modifiers::NONE;
                 self.release_all();
                 el.exit();
@@ -277,6 +487,7 @@ impl ApplicationHandler for App {
             WindowEvent::Focused(false) => {
                 // Releasing focus: drop all held keys/buttons so the target
                 // never sees stuck input.
+                let _ = self.abort_paste("Paste warning: focus lost");
                 self.mod_byte = Modifiers::NONE;
                 self.release_all();
             }
@@ -287,6 +498,25 @@ impl ApplicationHandler for App {
             WindowEvent::KeyboardInput { event, .. } => {
                 if let Some(usage) = physical_to_hid(event.physical_key) {
                     let pressed = event.state == ElementState::Pressed;
+                    if self.suppressed_keys.suppress_event(usage, pressed) {
+                        return;
+                    }
+                    if pressed
+                        && usage == HidUsage(0x29)
+                        && self.abort_paste("Paste warning: aborted")
+                    {
+                        return;
+                    }
+                    if self.paste.enabled
+                        && pressed
+                        && !event.repeat
+                        && is_paste_hotkey(usage, self.mod_byte, self.paste.shortcut)
+                    {
+                        self.suppressed_keys
+                            .extend(chord_usages(usage, self.mod_byte));
+                        self.start_paste(PasteSource::Clipboard);
+                        return;
+                    }
                     // Track the CH9329 modifier byte from physical modifier keys
                     // (preserves left/right and AltGr, layout-independently).
                     if let Some(bit) = modifier_bit(usage) {
@@ -332,6 +562,27 @@ impl ApplicationHandler for App {
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if let Some(b) = mouse_button(button) {
+                    if b == MouseButton::Middle {
+                        if state == ElementState::Released && self.suppress_middle_release {
+                            self.suppress_middle_release = false;
+                            return;
+                        }
+                        if self.paste.enabled && state == ElementState::Pressed {
+                            match self.paste.middle_click {
+                                MiddleClickPaste::Off => {}
+                                MiddleClickPaste::Primary => {
+                                    self.suppress_middle_release = true;
+                                    self.start_paste(PasteSource::Primary);
+                                    return;
+                                }
+                                MiddleClickPaste::Clipboard => {
+                                    self.suppress_middle_release = true;
+                                    self.start_paste(PasteSource::Clipboard);
+                                    return;
+                                }
+                            }
+                        }
+                    }
                     self.throttle.note_input(self.now());
                     self.send(InputEvent::MouseButton {
                         button: b,
@@ -382,6 +633,7 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {
+        self.clear_expired_status();
         self.pump_frames();
         // Poll the capture channel at ~250 Hz rather than spinning the event
         // loop continuously (a frame at 30 fps arrives every ~33 ms; 4 ms keeps
@@ -389,6 +641,11 @@ impl ApplicationHandler for App {
         el.set_control_flow(ControlFlow::WaitUntil(
             Instant::now() + std::time::Duration::from_millis(4),
         ));
+    }
+
+    fn exiting(&mut self, _el: &ActiveEventLoop) {
+        let _ = self.abort_paste("Paste warning: aborted");
+        self.teardown_clipboard();
     }
 }
 
@@ -407,4 +664,9 @@ fn test_pattern(width: u32, height: u32) -> openterface_core::decode::RgbaImage 
         height,
         pixels,
     }
+}
+
+fn estimated_paste_duration(outcome: PasteOutcome) -> Duration {
+    let millis = (DEFAULT_COMMAND_GAP.as_millis() as u64).saturating_mul(outcome.reports as u64);
+    Duration::from_millis(millis)
 }
