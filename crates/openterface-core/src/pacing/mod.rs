@@ -78,6 +78,18 @@ enum PendingMove {
     Relative { dx: i32, dy: i32 },
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum CommandKind {
+    Normal,
+    Paste,
+}
+
+#[derive(Clone, Debug)]
+struct QueuedCommand {
+    kind: CommandKind,
+    bytes: Vec<u8>,
+}
+
 /// A paced CH9329 command scheduler. Pure logic: feed it [`InputEvent`]s with
 /// [`PacingScheduler::submit`] and pull ready CH9329 frames with
 /// [`PacingScheduler::poll`].
@@ -85,7 +97,7 @@ pub struct PacingScheduler {
     config: PacingConfig,
     /// Commands that must be sent promptly and in order (keys, buttons, scroll,
     /// including all **releases**). These bypass move pacing.
-    priority: VecDeque<Vec<u8>>,
+    priority: VecDeque<QueuedCommand>,
     /// The coalesced pending mouse move (paced).
     pending_move: Option<PendingMove>,
     /// When the last paced move was emitted (`None` until the first move).
@@ -149,34 +161,39 @@ impl PacingScheduler {
                 // then apply the button change and enqueue the button command.
                 self.flush_pending_relative_move();
                 self.buttons = self.buttons.with(button, pressed);
-                self.priority.push_back(self.mouse_button_command());
+                self.push_priority(self.mouse_button_command());
             }
             InputEvent::Key {
                 usage,
                 modifiers,
                 pressed,
             } => {
-                self.modifiers = modifiers;
-                self.update_held(usage, pressed);
-                self.priority
-                    .push_back(ch9329::keyboard(self.modifiers, &self.held_keys));
+                self.submit_key(usage, modifiers, pressed, CommandKind::Normal);
+            }
+            InputEvent::PasteKey {
+                usage,
+                modifiers,
+                pressed,
+            } => {
+                self.submit_paste_key(usage, modifiers, pressed);
             }
             InputEvent::Scroll { delta } => {
                 // Scroll is a relative CH9329 frame carrying the wheel byte.
                 self.flush_pending_relative_move();
-                self.priority
-                    .push_back(ch9329::mouse_relative(0, 0, self.buttons, delta));
+                self.push_priority(ch9329::mouse_relative(0, 0, self.buttons, delta));
             }
             InputEvent::ReleaseAll => {
-                // Drop any pending move and clear all held state, then enqueue
-                // an all-zero keyboard report and a no-button mouse frame so the
-                // target releases everything immediately (focus-loss safety).
+                // Drop any pending move/paste backlog and clear all held state,
+                // then enqueue an all-zero keyboard report and a no-button mouse
+                // frame so the target releases everything immediately
+                // (focus-loss/abort safety).
+                self.priority.retain(|cmd| cmd.kind != CommandKind::Paste);
                 self.pending_move = None;
                 self.held_keys.clear();
                 self.modifiers = Modifiers::NONE;
                 self.buttons = ButtonMask::NONE;
-                self.priority.push_back(ch9329::keyboard_release());
-                self.priority.push_back(self.mouse_button_command());
+                self.push_priority(ch9329::keyboard_release());
+                self.push_priority(self.mouse_button_command());
             }
         }
     }
@@ -187,7 +204,7 @@ impl PacingScheduler {
     /// `mouse_interval`.
     pub fn poll(&mut self, now: Instant) -> Option<Vec<u8>> {
         if let Some(cmd) = self.priority.pop_front() {
-            return Some(cmd);
+            return Some(cmd.bytes);
         }
         if self.pending_move.is_some() && self.move_due(now) {
             let mv = self.pending_move.take().unwrap();
@@ -241,10 +258,44 @@ impl PacingScheduler {
         if self.relative_mode {
             if let Some(mv @ PendingMove::Relative { .. }) = self.pending_move {
                 let cmd = self.move_command(mv);
-                self.priority.push_back(cmd);
+                self.push_priority(cmd);
                 self.pending_move = None;
             }
         }
+    }
+
+    fn submit_key(
+        &mut self,
+        usage: HidUsage,
+        modifiers: Modifiers,
+        pressed: bool,
+        kind: CommandKind,
+    ) {
+        self.modifiers = modifiers;
+        self.update_held(usage, pressed);
+        self.push_command(kind, ch9329::keyboard(self.modifiers, &self.held_keys));
+    }
+
+    fn submit_paste_key(&mut self, usage: HidUsage, modifiers: Modifiers, pressed: bool) {
+        self.held_keys.clear();
+        if pressed {
+            self.modifiers = modifiers;
+            self.held_keys.push(usage);
+        } else {
+            self.modifiers = Modifiers::NONE;
+        }
+        self.push_command(
+            CommandKind::Paste,
+            ch9329::keyboard(self.modifiers, &self.held_keys),
+        );
+    }
+
+    fn push_priority(&mut self, bytes: Vec<u8>) {
+        self.push_command(CommandKind::Normal, bytes);
+    }
+
+    fn push_command(&mut self, kind: CommandKind, bytes: Vec<u8>) {
+        self.priority.push_back(QueuedCommand { kind, bytes });
     }
 
     fn mouse_button_command(&self) -> Vec<u8> {
@@ -575,6 +626,92 @@ mod tests {
         let next = s.poll(t0).unwrap();
         assert_eq!(next[5], 0); // no leftover modifier
         assert_eq!(&next[8..13], &[0, 0, 0, 0, 0]); // only one key held
+    }
+
+    #[test]
+    fn release_all_purges_queued_paste_frames() {
+        let mut s = sched();
+        let t0 = Instant::now();
+        s.submit(InputEvent::PasteKey {
+            usage: HidUsage(0x04),
+            modifiers: Modifiers::NONE,
+            pressed: true,
+        });
+        s.submit(InputEvent::PasteKey {
+            usage: HidUsage(0x04),
+            modifiers: Modifiers::NONE,
+            pressed: false,
+        });
+        s.submit(InputEvent::PasteKey {
+            usage: HidUsage(0x05),
+            modifiers: Modifiers::NONE,
+            pressed: true,
+        });
+
+        s.submit(InputEvent::ReleaseAll);
+
+        let kb = s.poll(t0).unwrap();
+        assert_eq!(kb, ch9329::keyboard_release());
+        let mouse = s.poll(t0).unwrap();
+        assert_eq!(mouse[3], ch9329::cmd::MOUSE_REL);
+        assert!(
+            s.poll(t0).is_none(),
+            "queued paste frames should be removed by ReleaseAll"
+        );
+    }
+
+    #[test]
+    fn release_all_preserves_ordinary_priority_frames_while_purging_paste() {
+        let mut s = sched();
+        let t0 = Instant::now();
+        s.submit(InputEvent::Key {
+            usage: HidUsage(0x04),
+            modifiers: Modifiers::NONE,
+            pressed: true,
+        });
+        s.submit(InputEvent::PasteKey {
+            usage: HidUsage(0x05),
+            modifiers: Modifiers::NONE,
+            pressed: true,
+        });
+
+        s.submit(InputEvent::ReleaseAll);
+
+        let ordinary = s.poll(t0).unwrap();
+        assert_eq!(
+            ordinary,
+            ch9329::keyboard(Modifiers::NONE, &[HidUsage(0x04)])
+        );
+        let kb = s.poll(t0).unwrap();
+        assert_eq!(kb, ch9329::keyboard_release());
+        let mouse = s.poll(t0).unwrap();
+        assert_eq!(mouse[3], ch9329::cmd::MOUSE_REL);
+        assert!(s.poll(t0).is_none());
+    }
+
+    #[test]
+    fn paste_key_press_replaces_previous_paste_key() {
+        let mut s = sched();
+        let t0 = Instant::now();
+        s.submit(InputEvent::PasteKey {
+            usage: HidUsage(0x04),
+            modifiers: Modifiers::NONE,
+            pressed: true,
+        });
+        s.submit(InputEvent::PasteKey {
+            usage: HidUsage(0x05),
+            modifiers: Modifiers::NONE,
+            pressed: true,
+        });
+
+        let first = s.poll(t0).unwrap();
+        assert_eq!(first, ch9329::keyboard(Modifiers::NONE, &[HidUsage(0x04)]));
+        let second = s.poll(t0).unwrap();
+        assert_eq!(
+            second,
+            ch9329::keyboard(Modifiers::NONE, &[HidUsage(0x05)]),
+            "paste reports are sequential keyboard states, not simultaneous keys"
+        );
     }
 
     #[test]

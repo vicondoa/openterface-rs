@@ -18,12 +18,22 @@ abort startup), except where a range is enforced as noted.
 | `OPENTERFACE_IDLE_WATCHDOG_MS` | `1000` | ms | Force a refresh at least this often (anti-freeze). |
 | `OPENTERFACE_FULLSCREEN` | `0` | `0`/`1` (also `false`/`no`/`off` = off) | Start the window fullscreen. `0`/empty/`false` stay windowed. |
 | `OPENTERFACE_USE_LIBDECOR` | `1` | `0`/`1` (also `false`/`no`/`off`) | `1` (default) draws libdecor client-side decorations (title bar) for CSD-only compositors; `0` opens a bare xdg-shell window (no decorations). |
+| `OPENTERFACE_ENABLE_PASTE` | `1` | `0` disables | Enable focused GUI paste (`Ctrl+Shift+V` by default) from the local Wayland clipboard to the target. |
+| `OPENTERFACE_PASTE_SHORTCUT` | `ctrl-shift-v` | modifier+`v` chord | Host-local focused paste shortcut. Accepted modifier tokens: `ctrl`, `alt`, `shift`, `super`; separators can be `+`, `-`, `_`, or spaces. Invalid values fall back to `ctrl-shift-v`. |
+| `OPENTERFACE_MIDDLE_CLICK_PASTE` | `off` | `primary`/`clipboard`/`off` | Host-local middle-click paste source. `off` forwards middle-clicks to the target; `primary` types the local primary selection; `clipboard` types the regular clipboard. |
+| `OPENTERFACE_PASTE_MAX_CHARS` | `4096` | accepted `1`–`65536` | Maximum normalized characters submitted per paste. Extra characters are truncated and reported; the cap is applied after CRLF/CR normalize to LF. |
 | `OPENTERFACE_REQUIRE_GPU` | _(unset)_ | set = require | Fail (not skip) if no wgpu adapter — used by the headless render test. |
 
 > **`OPENTERFACE_MOUSE_INTERVAL_MS` is not an optimization.** Over USB/IP the
 > CH9329 drains absolute-move commands at only ~30–40/sec. Forwarding faster
 > overruns its buffer and delays key/button **releases**, so the target
 > autorepeats or clicks miss. The default ~30 Hz is the verified safe rate.
+
+> **Paste throughput is paced.** Paste is sent as a keyboard-state stream through
+> the same 4 ms CH9329 command gap as normal keyboard input. Repeated physical
+> keys need extra release frames, but typical text is close to one report per
+> character plus a final release; press Escape or unfocus/close the window to
+> abort queued paste frames.
 
 ## Harness / test
 
@@ -37,4 +47,3 @@ suite only; they have no effect on the application.
 | `KVM_CPU_MAX` | `25` | Diagnostic CPU%% warn threshold for the idle-throttle check. |
 | `KVM_ALLOW_DESTRUCTIVE` | _(unset)_ | Required (with an explicit flag) to enable destructive verbs. See the harness guide. |
 | `OPENTERFACE_HW_TESTS` | _(unset)_ | `1` = run the `#[ignore]`d real-device tests (never in CI). |
-

@@ -199,6 +199,7 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
             fullscreen,
             title: "Openterface KVM (dummy)".to_string(),
             debug: args.debug,
+            input_available: false,
         };
         return match run(cfg) {
             Ok(()) => ExitCode::Success,
@@ -226,32 +227,34 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
     }
 
     // Build the serial transport first (shared by the video and no-video paths).
-    let serial: Box<dyn openterface_core::serial::SerialTransport> = if args.no_serial {
-        println!("- Serial disabled by --no-serial flag");
-        Box::new(NullSerial)
-    } else if let Some(sp) = &serial_path {
-        match SerialPortTransport::open(&sp.to_string_lossy()) {
-            Ok(mut t) => {
-                // Negotiate baud (115200 → 9600 fallback) before forwarding, so
-                // devices that only respond at the fallback rate still work.
-                use openterface_core::serial::connect_with_fallback;
-                if let Err(e) = connect_with_fallback(&mut t, std::time::Duration::from_millis(500))
-                {
-                    eprintln!("CH9329 negotiation failed ({e}); input forwarding disabled.");
-                    Box::new(NullSerial)
-                } else {
-                    Box::new(t)
+    let (serial, input_available): (Box<dyn openterface_core::serial::SerialTransport>, bool) =
+        if args.no_serial {
+            println!("- Serial disabled by --no-serial flag");
+            (Box::new(NullSerial), false)
+        } else if let Some(sp) = &serial_path {
+            match SerialPortTransport::open(&sp.to_string_lossy()) {
+                Ok(mut t) => {
+                    // Negotiate baud (115200 → 9600 fallback) before forwarding, so
+                    // devices that only respond at the fallback rate still work.
+                    use openterface_core::serial::connect_with_fallback;
+                    if let Err(e) =
+                        connect_with_fallback(&mut t, std::time::Duration::from_millis(500))
+                    {
+                        eprintln!("CH9329 negotiation failed ({e}); input forwarding disabled.");
+                        (Box::new(NullSerial), false)
+                    } else {
+                        (Box::new(t), true)
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Serial open failed ({e}); continuing without input forwarding.");
+                    (Box::new(NullSerial), false)
                 }
             }
-            Err(e) => {
-                eprintln!("Serial open failed ({e}); continuing without input forwarding.");
-                Box::new(NullSerial)
-            }
-        }
-    } else {
-        eprintln!("No serial control device found; input forwarding disabled.");
-        Box::new(NullSerial)
-    };
+        } else {
+            eprintln!("No serial control device found; input forwarding disabled.");
+            (Box::new(NullSerial), false)
+        };
 
     // --no-video: an input-only session with a blank window for input capture.
     if args.no_video {
@@ -271,6 +274,7 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
             fullscreen,
             title: "Openterface KVM (no video)".to_string(),
             debug: args.debug,
+            input_available,
         };
         return match run(cfg) {
             Ok(()) => ExitCode::Success,
@@ -320,6 +324,7 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
         fullscreen,
         title: "Openterface KVM".to_string(),
         debug: args.debug,
+        input_available,
     };
     if args.debug {
         println!("Debug mode enabled - input events will be logged");

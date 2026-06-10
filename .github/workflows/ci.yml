@@ -128,6 +128,19 @@ jobs:
         with:
           command: check advisories bans licenses sources
 
+  nix:
+    name: Nix flake checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@b97f05dcb019ddea06450a50ef6203d2fdc19fee
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - name: NixOS module eval check
+        run: nix build .#checks.x86_64-linux.nixos-module --print-build-logs
+
   gpu-render:
     name: headless render (lavapipe)
     runs-on: ubuntu-latest

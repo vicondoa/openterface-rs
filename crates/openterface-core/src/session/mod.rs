@@ -24,6 +24,7 @@ use std::time::{Duration, Instant};
 
 use crate::event::{HidUsage, InputEvent, Modifiers, MouseButton};
 use crate::pacing::{PacingConfig, PacingScheduler, DEFAULT_COMMAND_GAP};
+use crate::paste::{prepare_paste, PasteOutcome};
 use crate::serial::SerialTransport;
 use crate::video::{CaptureConfig, Frame, VideoSource};
 use crate::Result;
@@ -183,6 +184,46 @@ impl Session {
                     pressed: false,
                 });
             }
+        }
+    }
+
+    /// Types `text` as a paste operation and returns metrics plus the number of
+    /// keyboard reports queued. Paste-generated frames are abortable by
+    /// [`Session::release_all`].
+    pub fn send_paste(&self, text: &str, max_chars: usize) -> PasteOutcome {
+        let prepared = prepare_paste(text, max_chars);
+        let mut last_usage: Option<HidUsage> = None;
+        let mut reports = 0usize;
+        for ch in prepared.text().chars() {
+            if let Some((mods, usage)) = crate::protocol::hid::ascii_to_hid(ch) {
+                if last_usage == Some(usage) {
+                    self.send_input(InputEvent::PasteKey {
+                        usage,
+                        modifiers: Modifiers::NONE,
+                        pressed: false,
+                    });
+                    reports += 1;
+                }
+                self.send_input(InputEvent::PasteKey {
+                    usage,
+                    modifiers: mods,
+                    pressed: true,
+                });
+                reports += 1;
+                last_usage = Some(usage);
+            }
+        }
+        if let Some(usage) = last_usage {
+            self.send_input(InputEvent::PasteKey {
+                usage,
+                modifiers: Modifiers::NONE,
+                pressed: false,
+            });
+            reports += 1;
+        }
+        PasteOutcome {
+            stats: prepared.stats(),
+            reports,
         }
     }
 
@@ -351,6 +392,7 @@ fn capture_loop<V: VideoSource>(video: &mut V, frame_tx: &SyncSender<Frame>, run
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::paste::PasteStats;
     use crate::protocol::ch9329;
 
     /// Returns true if each needle appears in `haystack`, in the given order
@@ -525,6 +567,64 @@ mod tests {
                 Duration::from_secs(1)
             ),
             "the 'a' key report should reach the serial sink"
+        );
+        session.shutdown();
+    }
+
+    #[test]
+    fn paste_reports_stats_and_forwards_normalized_text() {
+        let sink = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let serial = VecSerial(std::sync::Arc::clone(&sink));
+        let mut session = Session::start_input_only(serial, PacingConfig::default()).unwrap();
+
+        let outcome = session.send_paste("a\r\n€", 99);
+        assert_eq!(
+            outcome.stats,
+            PasteStats {
+                submitted: 2,
+                skipped: 1,
+                truncated: 0,
+            }
+        );
+        assert_eq!(outcome.reports, 3);
+
+        let a_press = ch9329::keyboard(Modifiers::NONE, &[HidUsage(0x04)]);
+        let enter_press = ch9329::keyboard(Modifiers::NONE, &[HidUsage(0x28)]);
+        let release = ch9329::keyboard_release();
+        assert!(
+            wait_until(
+                || {
+                    let buf = sink.lock().unwrap();
+                    ordered_subslices(&buf, &[&a_press, &enter_press, &release])
+                },
+                Duration::from_secs(1)
+            ),
+            "paste should type 'a' then Enter and skip the Euro sign"
+        );
+        session.shutdown();
+    }
+
+    #[test]
+    fn paste_releases_before_repeated_physical_key() {
+        let sink = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let serial = VecSerial(std::sync::Arc::clone(&sink));
+        let mut session = Session::start_input_only(serial, PacingConfig::default()).unwrap();
+
+        let outcome = session.send_paste("aa", 99);
+        assert_eq!(outcome.stats.submitted, 2);
+        assert_eq!(outcome.reports, 4);
+
+        let a_press = ch9329::keyboard(Modifiers::NONE, &[HidUsage(0x04)]);
+        let release = ch9329::keyboard_release();
+        assert!(
+            wait_until(
+                || {
+                    let buf = sink.lock().unwrap();
+                    ordered_subslices(&buf, &[&a_press, &release, &a_press, &release])
+                },
+                Duration::from_secs(1)
+            ),
+            "repeated HID usage must be released before pressing it again"
         );
         session.shutdown();
     }

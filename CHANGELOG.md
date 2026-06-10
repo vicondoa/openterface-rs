@@ -9,6 +9,13 @@ All notable changes to this project are documented here. The format is based on
 ### Added
 - Dependabot configuration for weekly GitHub Actions updates with a 14-day
   cooldown.
+- Focused GUI paste: `Ctrl+Shift+V` reads the local Wayland clipboard while
+  the openterface-rs window is focused and types supported text into the target
+  through the CH9329 keyboard path. The shortcut is configurable with
+  `OPENTERFACE_PASTE_SHORTCUT`.
+- Middle-click host paste can type the local primary selection or regular
+  clipboard to the target when enabled with `OPENTERFACE_MIDDLE_CLICK_PASTE`;
+  the default keeps middle-click forwarding to the target.
 
 ### Changed
 - Removed historical implementation-comparison wording from docs and comments.

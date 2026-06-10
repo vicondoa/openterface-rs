@@ -47,6 +47,34 @@ openterface-rs paces mouse moves to ~30 Hz by default. If you raised
 the chip and delay releases — restore the default (`33`). See
 [environment variables](../reference/env-vars.md).
 
+## Paste does nothing or only partially types
+
+- The openterface-rs window must be focused. Paste uses Wayland's normal
+  focused-client clipboard path, not a global clipboard scrape.
+- Paste requires input forwarding. It will not type when `--no-serial` is set or
+  when the serial device failed to open/negotiate.
+- `OPENTERFACE_ENABLE_PASTE=0` disables the host-local `Ctrl+Shift+V`
+  shortcut; when disabled, the combo is forwarded like ordinary input.
+- `OPENTERFACE_PASTE_SHORTCUT=ctrl-alt-shift-v` (or another modifier+`v` chord)
+  changes the host-local shortcut if `Ctrl+Shift+V` conflicts with your target
+  workflow.
+- Keyboard paste uses the regular clipboard. Middle-click is forwarded to the
+  target by default; set `OPENTERFACE_MIDDLE_CLICK_PASTE=primary` to use the host
+  primary selection, or `clipboard` to use the regular clipboard.
+- Empty clipboards or clipboards without text are reported as paste warnings and
+  do not type anything.
+- The first implementation types US-layout ASCII only. Unsupported characters
+  (for example accents, smart quotes, emoji, or `€`) are skipped and reported by
+  count. Newline becomes Enter and tab becomes Tab.
+- Very large clipboards are capped by `OPENTERFACE_PASTE_MAX_CHARS`; truncated
+  text is reported in the window title while queued paste frames drain. Press
+  Escape, unfocus, or close the window to abort queued paste frames.
+- If your compositor or fullscreen mode hides window titles, paste feedback is
+  still available in logs but may not be visible in the window itself.
+
+Clipboard contents are never logged, even with verbose tracing; only counts and
+static error categories are logged.
+
 ## Window has no decorations / won't resize (niri / tiling Wayland)
 
 niri is CSD-only and advertises no server-side decorations; openterface-rs draws

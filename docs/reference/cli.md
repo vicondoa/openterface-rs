@@ -39,6 +39,34 @@ A display session needs the `hardware` feature (see
 [build](../how-to/build.md)); a binary built without it can still run `scan`
 and `status`.
 
+### Focused paste
+
+When the session window has keyboard focus, `Ctrl+Shift+V` reads the local
+regular Wayland clipboard and types supported text into the target through the CH9329
+keyboard path. The shortcut is host-local while paste is enabled: it is swallowed
+by openterface-rs and is **not** forwarded to the target.
+
+Middle-click behavior is separate: by default middle-clicks are forwarded to the
+target unchanged, matching a normal KVM/mouse path. Set
+`OPENTERFACE_MIDDLE_CLICK_PASTE=primary` to make middle-click type the host
+primary selection, or `clipboard` to make middle-click type the regular
+clipboard instead.
+
+Paste is local-clipboard-to-target typing, not target clipboard synchronization.
+It uses the normal focused-client Wayland clipboard path (no XWayland and no
+global/data-control clipboard scrape). The first pass uses the existing US-layout
+ASCII mapper: newline becomes Enter, tab becomes Tab, unsupported characters are
+skipped and reported by count. Large pastes are capped by
+`OPENTERFACE_PASTE_MAX_CHARS`; press Escape, unfocus, or close the window to
+abort pending paste frames. Paste status is logged and reflected in the window
+title. If your compositor or fullscreen mode hides titles, use logs for paste
+feedback.
+
+Set `OPENTERFACE_PASTE_SHORTCUT` to another modifier+`V` chord if `Ctrl+Shift+V`
+conflicts with your target workflow; for example `ctrl-alt-shift-v` restores the
+original 4-key chord. The configured shortcut is never forwarded to the target
+while paste is enabled.
+
 > **Behavior note (exit codes).** openterface-rs exits **`1`** when a device is
 > not found, a connection fails, or a reset fails. Usage errors exit `2`;
 > `--help`/`--version` exit `0`.

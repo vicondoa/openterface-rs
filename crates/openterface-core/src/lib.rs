@@ -27,6 +27,7 @@ pub mod error;
 pub mod event;
 pub mod input;
 pub mod pacing;
+pub mod paste;
 pub mod protocol;
 pub mod serial;
 pub mod session;
