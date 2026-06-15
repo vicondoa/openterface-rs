@@ -17,7 +17,7 @@ abort startup), except where a range is enforced as noted.
 | `OPENTERFACE_INPUT_WAKE_MS` | `250` | ms | After input, decode at full rate for this long. |
 | `OPENTERFACE_IDLE_WATCHDOG_MS` | `1000` | ms | Force a refresh at least this often (anti-freeze). |
 | `OPENTERFACE_FULLSCREEN` | `0` | `0`/`1` (also `false`/`no`/`off` = off) | Start the window fullscreen. `0`/empty/`false` stay windowed. |
-| `OPENTERFACE_USE_LIBDECOR` | `1` | `0`/`1` (also `false`/`no`/`off`) | `1` (default) draws libdecor client-side decorations (title bar) for CSD-only compositors; `0` opens a bare xdg-shell window (no decorations). |
+| `OPENTERFACE_USE_LIBDECOR` | `0` | `0`/`1` (also `false`/`no`/`off`) | `0` (default) opens a bare xdg-shell window (no decorations), avoiding a CSD↔wgpu surface race that can make the window disappear on focus/visibility changes (e.g. returning after a niri workspace switch); `1` draws winit's client-side decorations (title bar). |
 | `OPENTERFACE_ENABLE_PASTE` | `1` | `0` disables | Enable focused GUI paste (`Ctrl+Shift+V` by default) from the local Wayland clipboard to the target. |
 | `OPENTERFACE_PASTE_SHORTCUT` | `ctrl-shift-v` | modifier+`v` chord | Host-local focused paste shortcut. Accepted modifier tokens: `ctrl`, `alt`, `shift`, `super`; separators can be `+`, `-`, `_`, or spaces. Invalid values fall back to `ctrl-shift-v`. |
 | `OPENTERFACE_MIDDLE_CLICK_PASTE` | `off` | `primary`/`clipboard`/`off` | Host-local middle-click paste source. `off` forwards middle-clicks to the target; `primary` types the local primary selection; `clipboard` types the regular clipboard. |

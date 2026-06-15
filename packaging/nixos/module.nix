@@ -87,8 +87,14 @@ in
 
     useLibdecor = mkOption {
       type = types.bool;
-      default = true;
-      description = "Set `OPENTERFACE_USE_LIBDECOR`; true is recommended for niri/CSD compositors.";
+      default = false;
+      description = ''
+        Set `OPENTERFACE_USE_LIBDECOR`. Default `false` opens an undecorated
+        xdg-shell window: winit's client-side decorations (CSD) commit the
+        toplevel out of band from wgpu's surface presentation and race on
+        focus/visibility changes, which can make the window disappear on
+        CSD-only compositors (niri). Set `true` to draw a client-side title bar.
+      '';
     };
 
     requireGpu = mkOption {

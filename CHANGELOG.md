@@ -20,14 +20,22 @@ All notable changes to this project are documented here. The format is based on
 ### Changed
 - Removed historical implementation-comparison wording from docs and comments.
 - Removed the obsolete implementation plan and its documentation links.
+- The GUI window now opens **undecorated** by default (`OPENTERFACE_USE_LIBDECOR`
+  defaults to `0`). Set `OPENTERFACE_USE_LIBDECOR=1` to draw a libdecor
+  client-side title bar. See the fix below for why.
 
 ### Fixed
-- GUI window no longer freezes or appears to vanish (while the process keeps
-  running) after returning to it following a niri workspace/window switch. The
-  Wayland surface goes `Outdated`/`Lost` when the compositor re-shows the
-  window; the renderer now reconfigures the surface with the current window
-  size and re-arms a redraw instead of silently dropping the error, and a
-  refocus re-arms a redraw so a stale surface is recovered immediately.
+- GUI window no longer disappears (while the process keeps rendering) after a
+  focus/visibility change such as returning to the window after a niri workspace
+  switch. Root cause: winit's client-side decorations (CSD) commit the toplevel
+  out of band from wgpu's surface presentation; on the configure that arrives
+  when the window is re-shown the two race and the compositor unmaps the
+  toplevel. Client-side decorations now default off (undecorated xdg-shell), so
+  there is a single committer for the surface.
+- Hardened the renderer against a genuinely stale Wayland surface: on
+  `Outdated`/`Lost` from `get_current_texture` it now reconfigures the surface
+  with the current window size and re-arms a redraw instead of silently dropping
+  the error, and a refocus re-arms a redraw.
 
 ## [1.0.2] - 2026-06-08
 

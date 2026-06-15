@@ -436,13 +436,18 @@ impl ApplicationHandler for App {
             .with_inner_size(LogicalSize::new(1280.0, 720.0))
             // Minimum sensible window size.
             .with_min_inner_size(LogicalSize::new(640.0, 480.0));
-        // OPENTERFACE_USE_LIBDECOR=0 selects the bare xdg-shell window (no
-        // client-side decorations); the default uses libdecor CSD (winit draws
-        // a title bar on CSD-only compositors like niri).
-        let use_libdecor = std::env::var("OPENTERFACE_USE_LIBDECOR")
-            .ok()
-            .map(|v| !matches!(v.trim(), "0" | "false" | "no" | "off"))
-            .unwrap_or(true);
+        // Window decorations. On a CSD-only compositor (niri) winit's decorated
+        // path draws the title bar itself (SCTK client-side decorations) using
+        // its own decoration subsurfaces, and commits the toplevel out of band
+        // from wgpu's surface presentation. On a focus/visibility change — e.g.
+        // returning to the window after a niri workspace switch — the CSD
+        // configure/commit races wgpu's independent presents and the compositor
+        // unmaps the toplevel: the window vanishes while the process keeps
+        // rendering. Default to an undecorated xdg-shell window so there is a
+        // single committer for the surface (the title/status is still shown by
+        // the compositor via xdg_toplevel.title). Set OPENTERFACE_USE_LIBDECOR=1
+        // to opt back into client-side decorations.
+        let use_libdecor = decorations_enabled(std::env::var("OPENTERFACE_USE_LIBDECOR").ok());
         attrs = attrs.with_decorations(use_libdecor);
         if self.cfg.fullscreen {
             attrs = attrs.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
@@ -741,6 +746,22 @@ fn surface_error_recovery(error: &wgpu::SurfaceError) -> SurfaceRecovery {
     }
 }
 
+/// Whether to request client-side window decorations, from
+/// `OPENTERFACE_USE_LIBDECOR` (legacy name). Defaults to **off** (undecorated
+/// xdg-shell): winit's client-side decorations (CSD) race wgpu's surface
+/// presentation on focus/visibility changes and can make the window disappear
+/// on CSD-only compositors (niri). The value is matched case-insensitively;
+/// unset, empty, or `0`/`false`/`no`/`off` stay off, anything else opts in.
+fn decorations_enabled(var: Option<String>) -> bool {
+    match var {
+        Some(v) => {
+            let v = v.trim().to_ascii_lowercase();
+            !(v.is_empty() || matches!(v.as_str(), "0" | "false" | "no" | "off"))
+        }
+        None => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{surface_error_recovery, SurfaceRecovery};
@@ -769,5 +790,23 @@ mod tests {
             surface_error_recovery(&wgpu::SurfaceError::OutOfMemory),
             SurfaceRecovery::Skip
         );
+    }
+
+    #[test]
+    fn decorations_default_off_and_opt_in() {
+        use super::decorations_enabled;
+        // Default (unset), empty, and whitespace: undecorated, to avoid the
+        // CSD↔wgpu unmap race.
+        assert!(!decorations_enabled(None));
+        assert!(!decorations_enabled(Some(String::new())));
+        assert!(!decorations_enabled(Some("   ".to_string())));
+        // Explicit "off" spellings stay off (case-insensitive).
+        for v in ["0", "false", "FALSE", "No", "off", " Off "] {
+            assert!(!decorations_enabled(Some(v.to_string())), "{v:?}");
+        }
+        // Anything else opts into decorations.
+        for v in ["1", "true", "YES", "on"] {
+            assert!(decorations_enabled(Some(v.to_string())), "{v:?}");
+        }
     }
 }
