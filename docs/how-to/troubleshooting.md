@@ -77,9 +77,15 @@ static error categories are logged.
 
 ## Window has no decorations / won't resize (niri / tiling Wayland)
 
-niri is CSD-only and advertises no server-side decorations; openterface-rs draws
-client-side decorations via libdecor (winit). Ensure `libdecor` is installed at
-runtime. `OPENTERFACE_FULLSCREEN=1` starts fullscreen.
+By default openterface-rs opens an **undecorated** xdg-shell window (no
+client-side title bar). This is deliberate: winit's client-side decorations
+(CSD) commit the toplevel out of band from wgpu's surface presentation and race
+on focus/visibility changes, which can make the window disappear (process still
+running) on CSD-only compositors like niri. On a tiling compositor a client
+title bar is redundant anyway — niri shows the title/status itself. Set
+`OPENTERFACE_USE_LIBDECOR=1` to draw a client-side title bar (useful on a
+floating compositor where you want mouse-driven move/resize/close controls).
+`OPENTERFACE_FULLSCREEN=1` starts fullscreen.
 
 ## `connect` fails immediately with no window
 
