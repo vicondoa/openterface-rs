@@ -369,6 +369,57 @@ impl App {
             }
         }
     }
+
+    /// Presents the current frame, recovering from a stale surface.
+    ///
+    /// On Wayland the surface frequently goes `Outdated`/`Lost` after the
+    /// compositor re-shows the window (e.g. returning to it after a niri
+    /// workspace/window switch), often with a changed size or scale. The earlier
+    /// code dropped every `get_current_texture` error silently and never
+    /// reconfigured, so the window stopped presenting and appeared frozen or
+    /// gone — with nothing logged. Reconfigure (with the *current* window size)
+    /// and re-arm a redraw on those; skip transient errors.
+    fn render(&mut self) {
+        let Some(gpu) = self.gpu.as_mut() else {
+            return;
+        };
+        let surface_tex = match gpu.surface.get_current_texture() {
+            Ok(tex) => tex,
+            Err(e) => {
+                match surface_error_recovery(&e) {
+                    SurfaceRecovery::Reconfigure => {
+                        tracing::debug!(error = ?e, "surface stale; reconfiguring");
+                        // Re-read the size: the surface is usually outdated
+                        // because the compositor resized/rescaled us on re-show,
+                        // so reconfiguring with the stale config would just go
+                        // `Outdated` again (a permanent freeze / hot loop).
+                        let size = gpu.window.inner_size();
+                        gpu.config.width = size.width.max(1);
+                        gpu.config.height = size.height.max(1);
+                        gpu.surface.configure(gpu.renderer.device(), &gpu.config);
+                        gpu.window.request_redraw();
+                    }
+                    SurfaceRecovery::Skip => {
+                        tracing::trace!(error = ?e, "surface frame skipped");
+                    }
+                }
+                return;
+            }
+        };
+        let view = surface_tex
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder =
+            gpu.renderer
+                .device()
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("frame"),
+                });
+        gpu.renderer
+            .draw(&view, &mut encoder, gpu.config.width, gpu.config.height);
+        gpu.renderer.queue().submit(Some(encoder.finish()));
+        surface_tex.present();
+    }
 }
 
 impl ApplicationHandler for App {
@@ -484,12 +535,22 @@ impl ApplicationHandler for App {
                     gpu.window.request_redraw();
                 }
             }
-            WindowEvent::Focused(false) => {
-                // Releasing focus: drop all held keys/buttons so the target
-                // never sees stuck input.
-                let _ = self.abort_paste("Paste warning: focus lost");
-                self.mod_byte = Modifiers::NONE;
-                self.release_all();
+            WindowEvent::Focused(focused) => {
+                if focused {
+                    // Regained focus (e.g. returning to the window after a niri
+                    // workspace/window switch): re-arm a redraw so the surface is
+                    // re-acquired and reconfigured if the compositor invalidated
+                    // it while we were away, instead of staying on a stale frame.
+                    if let Some(gpu) = self.gpu.as_ref() {
+                        gpu.window.request_redraw();
+                    }
+                } else {
+                    // Releasing focus: drop all held keys/buttons so the target
+                    // never sees stuck input.
+                    let _ = self.abort_paste("Paste warning: focus lost");
+                    self.mod_byte = Modifiers::NONE;
+                    self.release_all();
+                }
             }
             WindowEvent::CursorLeft { .. } => {
                 self.mod_byte = Modifiers::NONE;
@@ -611,22 +672,11 @@ impl ApplicationHandler for App {
                         gpu.surface.configure(gpu.renderer.device(), &gpu.config);
                     }
                 }
-                if let Some(gpu) = self.gpu.as_mut() {
-                    if let Ok(surface_tex) = gpu.surface.get_current_texture() {
-                        let view = surface_tex
-                            .texture
-                            .create_view(&wgpu::TextureViewDescriptor::default());
-                        let mut encoder = gpu.renderer.device().create_command_encoder(
-                            &wgpu::CommandEncoderDescriptor {
-                                label: Some("frame"),
-                            },
-                        );
-                        gpu.renderer
-                            .draw(&view, &mut encoder, gpu.config.width, gpu.config.height);
-                        gpu.renderer.queue().submit(Some(encoder.finish()));
-                        surface_tex.present();
-                    }
-                }
+                // winit's Wayland backend only dispatches `RedrawRequested` once
+                // the compositor has sent a frame callback, so the surface is
+                // ready here (no `Fifo` stall). `render` still recovers if the
+                // surface went stale while we were hidden.
+                self.render();
             }
             _ => {}
         }
@@ -669,4 +719,55 @@ fn test_pattern(width: u32, height: u32) -> openterface_core::decode::RgbaImage 
 fn estimated_paste_duration(outcome: PasteOutcome) -> Duration {
     let millis = (DEFAULT_COMMAND_GAP.as_millis() as u64).saturating_mul(outcome.reports as u64);
     Duration::from_millis(millis)
+}
+
+/// How to react to a `Surface::get_current_texture` failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SurfaceRecovery {
+    /// The surface is stale (`Outdated`/`Lost`); reconfigure and try again.
+    Reconfigure,
+    /// Transient (`Timeout`) or fatal-but-rare (`OutOfMemory`); skip this frame.
+    Skip,
+}
+
+/// Maps a surface acquisition error to a recovery action. A stale surface
+/// (`Outdated`/`Lost`, e.g. after a Wayland resize/occlusion) must be
+/// reconfigured or it never presents again; other errors are skipped so the
+/// loop keeps running instead of crashing or freezing.
+fn surface_error_recovery(error: &wgpu::SurfaceError) -> SurfaceRecovery {
+    match error {
+        wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost => SurfaceRecovery::Reconfigure,
+        _ => SurfaceRecovery::Skip,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{surface_error_recovery, SurfaceRecovery};
+
+    #[test]
+    fn stale_surface_errors_reconfigure() {
+        // A stale surface must be reconfigured; dropping these (as the original
+        // code did) leaves the window permanently blank/frozen on Wayland.
+        assert_eq!(
+            surface_error_recovery(&wgpu::SurfaceError::Outdated),
+            SurfaceRecovery::Reconfigure
+        );
+        assert_eq!(
+            surface_error_recovery(&wgpu::SurfaceError::Lost),
+            SurfaceRecovery::Reconfigure
+        );
+    }
+
+    #[test]
+    fn transient_or_fatal_surface_errors_skip() {
+        assert_eq!(
+            surface_error_recovery(&wgpu::SurfaceError::Timeout),
+            SurfaceRecovery::Skip
+        );
+        assert_eq!(
+            surface_error_recovery(&wgpu::SurfaceError::OutOfMemory),
+            SurfaceRecovery::Skip
+        );
+    }
 }

@@ -21,6 +21,14 @@ All notable changes to this project are documented here. The format is based on
 - Removed historical implementation-comparison wording from docs and comments.
 - Removed the obsolete implementation plan and its documentation links.
 
+### Fixed
+- GUI window no longer freezes or appears to vanish (while the process keeps
+  running) after returning to it following a niri workspace/window switch. The
+  Wayland surface goes `Outdated`/`Lost` when the compositor re-shows the
+  window; the renderer now reconfigures the surface with the current window
+  size and re-arms a redraw instead of silently dropping the error, and a
+  refocus re-arms a redraw so a stale surface is recovered immediately.
+
 ## [1.0.2] - 2026-06-08
 
 ### Added
