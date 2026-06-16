@@ -83,6 +83,8 @@ client-side title bar). This is deliberate: winit's client-side decorations
 on focus/visibility changes, which can make the window disappear (process still
 running) on CSD-only compositors like niri. On a tiling compositor a client
 title bar is redundant anyway — niri shows the title/status itself. Set
+`OPENTERFACE_TITLE_PREFIX` to label VM/proxy sessions there; this works with the
+default undecorated window and does not require client-side decorations. Set
 `OPENTERFACE_USE_LIBDECOR=1` to draw a client-side title bar (useful on a
 floating compositor where you want mouse-driven move/resize/close controls).
 `OPENTERFACE_FULLSCREEN=1` starts fullscreen.

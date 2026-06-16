@@ -11,6 +11,7 @@ abort startup), except where a range is enforced as noted.
 | Variable | Default | Range / values | Effect |
 |----------|--------:|----------------|--------|
 | `RUST_LOG` | _(unset)_ | `error`/`warn`/`info`/`debug`/`trace`, or per-module | Log filter (via `tracing-subscriber`). |
+| `OPENTERFACE_TITLE_PREFIX` | _(unset)_ | text | Prefix prepended to GUI window titles. Useful for labeling VM/proxy sessions in compositor title/status UI and client-side title bars. |
 | `OPENTERFACE_MOUSE_INTERVAL_MS` | `33` | accepted `5`–`1000` | Minimum interval between forwarded mouse-move commands (~30 Hz). A value outside the range (or unparseable) is ignored and the `33` default is used. **Load-bearing:** see below. |
 | `OPENTERFACE_THROTTLE` | `1` | `0` disables | Idle MJPEG-decode throttling on/off. |
 | `OPENTERFACE_IDLE_DECODE_MS` | `100` | ms | Minimum decode interval for a non-deterministic static stream. |
