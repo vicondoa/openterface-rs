@@ -13,6 +13,8 @@ All notable changes to this project are documented here. The format is based on
   the openterface-rs window is focused and types supported text into the target
   through the CH9329 keyboard path. The shortcut is configurable with
   `OPENTERFACE_PASTE_SHORTCUT`.
+- `OPENTERFACE_TITLE_PREFIX` (and the NixOS module `titlePrefix` option) can
+  prepend labels such as VM names to GUI window titles.
 - Middle-click host paste can type the local primary selection or regular
   clipboard to the target when enabled with `OPENTERFACE_MIDDLE_CLICK_PASTE`;
   the default keeps middle-click forwarding to the target.
