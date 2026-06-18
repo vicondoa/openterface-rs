@@ -31,7 +31,7 @@ gpu-tests = ["display"]
 openterface-core.workspace = true
 tracing.workspace = true
 winit = { version = "0.30", default-features = false, features = ["wayland", "wayland-dlopen", "rwh_06"], optional = true }
-wgpu = { version = "22", optional = true }
+wgpu = { version = "29", default-features = false, features = ["std", "wgsl", "vulkan", "gles"], optional = true }
 pollster = { version = "0.3", optional = true }
 raw-window-handle = { version = "0.6", optional = true }
 bytemuck = { version = "1", features = ["derive"], optional = true }

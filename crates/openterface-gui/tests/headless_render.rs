@@ -16,7 +16,7 @@ fn renders_uploaded_frame_offscreen() {
     // Enumerate adapters and prefer a software/CPU one (e.g. Mesa lavapipe,
     // which presents as a regular Vulkan adapter of device type Cpu rather than
     // a wgpu "fallback" adapter, so `force_fallback_adapter` alone misses it).
-    let mut adapters = instance.enumerate_adapters(wgpu::Backends::all());
+    let mut adapters = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()));
     adapters.sort_by_key(|a| match a.get_info().device_type {
         wgpu::DeviceType::Cpu => 0,
         wgpu::DeviceType::IntegratedGpu => 1,
@@ -30,6 +30,7 @@ fn renders_uploaded_frame_offscreen() {
             compatible_surface: None,
             force_fallback_adapter: true,
         }))
+        .ok()
     });
     let Some(adapter) = adapter else {
         if require {
@@ -39,7 +40,7 @@ fn renders_uploaded_frame_offscreen() {
         return;
     };
     let device_queue =
-        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default(), None));
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()));
     let (device, queue) = match device_queue {
         Ok(dq) => dq,
         Err(e) => {
