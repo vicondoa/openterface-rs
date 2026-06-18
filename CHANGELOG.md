@@ -37,10 +37,9 @@ All notable changes to this project are documented here. The format is based on
   when the window is re-shown the two race and the compositor unmaps the
   toplevel. Client-side decorations now default off (undecorated xdg-shell), so
   there is a single committer for the surface.
-- Hardened the renderer against a genuinely stale Wayland surface: on
-  `Outdated`/`Lost` from `get_current_texture` it now reconfigures the surface
-  with the current window size and re-arms a redraw instead of silently dropping
-  the error, and a refocus re-arms a redraw.
+- Hardened the renderer against stale Wayland surfaces: `Outdated` now
+  reconfigures the surface with the current window size, `Lost` recreates the
+  surface before configuring it, and a refocus re-arms a redraw.
 
 ## [1.0.2] - 2026-06-08
 

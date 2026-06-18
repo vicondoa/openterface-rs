@@ -414,8 +414,8 @@ impl App {
                                 let size = gpu.window.inner_size();
                                 gpu.config.width = size.width.max(1);
                                 gpu.config.height = size.height.max(1);
-                                surface.configure(gpu.renderer.device(), &gpu.config);
                                 gpu.surface = surface;
+                                gpu.surface.configure(gpu.renderer.device(), &gpu.config);
                                 gpu.window.request_redraw();
                             }
                             Err(error) => {
