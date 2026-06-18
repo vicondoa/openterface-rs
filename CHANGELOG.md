@@ -20,6 +20,9 @@ All notable changes to this project are documented here. The format is based on
   the default keeps middle-click forwarding to the target.
 
 ### Changed
+- Updated `wgpu` to 29 and enabled only the Linux renderer features used by the
+  Wayland frontend, removing the unmaintained transitive `paste` dependency from
+  the lockfile.
 - Removed historical implementation-comparison wording from docs and comments.
 - Removed the obsolete implementation plan and its documentation links.
 - The GUI window now opens **undecorated** by default (`OPENTERFACE_USE_LIBDECOR`

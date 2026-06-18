@@ -384,11 +384,16 @@ impl App {
             return;
         };
         let surface_tex = match gpu.surface.get_current_texture() {
-            Ok(tex) => tex,
-            Err(e) => {
-                match surface_error_recovery(&e) {
+            wgpu::CurrentSurfaceTexture::Success(tex) => tex,
+            wgpu::CurrentSurfaceTexture::Suboptimal(tex) => {
+                tracing::trace!("surface frame is suboptimal; presenting and rearming redraw");
+                gpu.window.request_redraw();
+                tex
+            }
+            status => {
+                match surface_recovery(&status) {
                     SurfaceRecovery::Reconfigure => {
-                        tracing::debug!(error = ?e, "surface stale; reconfiguring");
+                        tracing::debug!("surface stale; reconfiguring");
                         // Re-read the size: the surface is usually outdated
                         // because the compositor resized/rescaled us on re-show,
                         // so reconfiguring with the stale config would just go
@@ -400,7 +405,7 @@ impl App {
                         gpu.window.request_redraw();
                     }
                     SurfaceRecovery::Skip => {
-                        tracing::trace!(error = ?e, "surface frame skipped");
+                        tracing::trace!(?status, "surface frame skipped");
                     }
                 }
                 return;
@@ -465,7 +470,7 @@ impl ApplicationHandler for App {
         }))
         .expect("request adapter");
         let (device, queue) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default(), None))
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
                 .expect("request device");
 
         let size = window.inner_size();
@@ -735,13 +740,15 @@ enum SurfaceRecovery {
     Skip,
 }
 
-/// Maps a surface acquisition error to a recovery action. A stale surface
+/// Maps a surface acquisition status to a recovery action. A stale surface
 /// (`Outdated`/`Lost`, e.g. after a Wayland resize/occlusion) must be
 /// reconfigured or it never presents again; other errors are skipped so the
 /// loop keeps running instead of crashing or freezing.
-fn surface_error_recovery(error: &wgpu::SurfaceError) -> SurfaceRecovery {
-    match error {
-        wgpu::SurfaceError::Outdated | wgpu::SurfaceError::Lost => SurfaceRecovery::Reconfigure,
+fn surface_recovery(status: &wgpu::CurrentSurfaceTexture) -> SurfaceRecovery {
+    match status {
+        wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
+            SurfaceRecovery::Reconfigure
+        }
         _ => SurfaceRecovery::Skip,
     }
 }
@@ -764,18 +771,18 @@ fn decorations_enabled(var: Option<String>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{surface_error_recovery, SurfaceRecovery};
+    use super::{surface_recovery, SurfaceRecovery};
 
     #[test]
     fn stale_surface_errors_reconfigure() {
         // A stale surface must be reconfigured; dropping these (as the original
         // code did) leaves the window permanently blank/frozen on Wayland.
         assert_eq!(
-            surface_error_recovery(&wgpu::SurfaceError::Outdated),
+            surface_recovery(&wgpu::CurrentSurfaceTexture::Outdated),
             SurfaceRecovery::Reconfigure
         );
         assert_eq!(
-            surface_error_recovery(&wgpu::SurfaceError::Lost),
+            surface_recovery(&wgpu::CurrentSurfaceTexture::Lost),
             SurfaceRecovery::Reconfigure
         );
     }
@@ -783,11 +790,11 @@ mod tests {
     #[test]
     fn transient_or_fatal_surface_errors_skip() {
         assert_eq!(
-            surface_error_recovery(&wgpu::SurfaceError::Timeout),
+            surface_recovery(&wgpu::CurrentSurfaceTexture::Timeout),
             SurfaceRecovery::Skip
         );
         assert_eq!(
-            surface_error_recovery(&wgpu::SurfaceError::OutOfMemory),
+            surface_recovery(&wgpu::CurrentSurfaceTexture::Validation),
             SurfaceRecovery::Skip
         );
     }
