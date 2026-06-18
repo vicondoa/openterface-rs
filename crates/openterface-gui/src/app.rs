@@ -384,10 +384,12 @@ impl App {
         let Some(gpu) = self.gpu.as_mut() else {
             return;
         };
+        let mut reconfigure_after_present = false;
         let surface_tex = match gpu.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(tex) => tex,
             wgpu::CurrentSurfaceTexture::Suboptimal(tex) => {
                 tracing::trace!("surface frame is suboptimal; presenting and rearming redraw");
+                reconfigure_after_present = true;
                 gpu.window.request_redraw();
                 tex
             }
@@ -441,6 +443,13 @@ impl App {
             .draw(&view, &mut encoder, gpu.config.width, gpu.config.height);
         gpu.renderer.queue().submit(Some(encoder.finish()));
         surface_tex.present();
+        if reconfigure_after_present {
+            let size = gpu.window.inner_size();
+            gpu.config.width = size.width.max(1);
+            gpu.config.height = size.height.max(1);
+            gpu.surface.configure(gpu.renderer.device(), &gpu.config);
+            gpu.window.request_redraw();
+        }
     }
 }
 
