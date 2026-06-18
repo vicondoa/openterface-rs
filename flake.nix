@@ -97,6 +97,7 @@
                     enable = true;
                     package = fakePackage;
                     logFilter = "info";
+                    titlePrefix = "[test] ";
                     mouseIntervalMs = 50;
                     throttle = {
                       enable = false;
@@ -126,6 +127,7 @@
             wrapper=${configuredPackage}/bin/openterface-rs
             test -x "$wrapper"
             grep -q 'RUST_LOG' "$wrapper"
+            grep -q 'OPENTERFACE_TITLE_PREFIX' "$wrapper"
             grep -q 'OPENTERFACE_MOUSE_INTERVAL_MS' "$wrapper"
             grep -q 'OPENTERFACE_THROTTLE' "$wrapper"
             grep -q 'OPENTERFACE_IDLE_DECODE_MS' "$wrapper"
