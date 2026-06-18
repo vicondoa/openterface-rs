@@ -59,6 +59,7 @@ pub fn run(config: RunConfig) -> Result<(), Box<dyn std::error::Error>> {
 
 struct GpuWindow {
     window: std::sync::Arc<Window>,
+    instance: wgpu::Instance,
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     renderer: crate::renderer::Renderer,
@@ -372,13 +373,13 @@ impl App {
 
     /// Presents the current frame, recovering from a stale surface.
     ///
-    /// On Wayland the surface frequently goes `Outdated`/`Lost` after the
+    /// On Wayland the surface can go stale after the
     /// compositor re-shows the window (e.g. returning to it after a niri
     /// workspace/window switch), often with a changed size or scale. The earlier
     /// code dropped every `get_current_texture` error silently and never
-    /// reconfigured, so the window stopped presenting and appeared frozen or
-    /// gone — with nothing logged. Reconfigure (with the *current* window size)
-    /// and re-arm a redraw on those; skip transient errors.
+    /// recovered, so the window stopped presenting and appeared frozen or gone
+    /// with nothing logged. Reconfigure `Outdated`; recreate the surface on
+    /// `Lost`; skip transient statuses.
     fn render(&mut self) {
         let Some(gpu) = self.gpu.as_mut() else {
             return;
@@ -393,7 +394,7 @@ impl App {
             status => {
                 match surface_recovery(&status) {
                     SurfaceRecovery::Reconfigure => {
-                        tracing::debug!("surface stale; reconfiguring");
+                        tracing::debug!("surface outdated; reconfiguring");
                         // Re-read the size: the surface is usually outdated
                         // because the compositor resized/rescaled us on re-show,
                         // so reconfiguring with the stale config would just go
@@ -403,6 +404,22 @@ impl App {
                         gpu.config.height = size.height.max(1);
                         gpu.surface.configure(gpu.renderer.device(), &gpu.config);
                         gpu.window.request_redraw();
+                    }
+                    SurfaceRecovery::Recreate => {
+                        tracing::debug!("surface lost; recreating");
+                        match gpu.instance.create_surface(gpu.window.clone()) {
+                            Ok(surface) => {
+                                let size = gpu.window.inner_size();
+                                gpu.config.width = size.width.max(1);
+                                gpu.config.height = size.height.max(1);
+                                surface.configure(gpu.renderer.device(), &gpu.config);
+                                gpu.surface = surface;
+                                gpu.window.request_redraw();
+                            }
+                            Err(error) => {
+                                tracing::warn!(?error, "failed to recreate lost surface");
+                            }
+                        }
                     }
                     SurfaceRecovery::Skip => {
                         tracing::trace!(?status, "surface frame skipped");
@@ -520,6 +537,7 @@ impl ApplicationHandler for App {
 
         self.gpu = Some(GpuWindow {
             window,
+            instance,
             surface,
             config,
             renderer,
@@ -734,21 +752,20 @@ fn estimated_paste_duration(outcome: PasteOutcome) -> Duration {
 /// How to react to a `Surface::get_current_texture` failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SurfaceRecovery {
-    /// The surface is stale (`Outdated`/`Lost`); reconfigure and try again.
+    /// The surface is outdated; reconfigure and try again.
     Reconfigure,
-    /// Transient (`Timeout`) or fatal-but-rare (`OutOfMemory`); skip this frame.
+    /// The surface is lost; recreate it from the window before trying again.
+    Recreate,
+    /// Transient or fatal-but-rare statuses; skip this frame.
     Skip,
 }
 
-/// Maps a surface acquisition status to a recovery action. A stale surface
-/// (`Outdated`/`Lost`, e.g. after a Wayland resize/occlusion) must be
-/// reconfigured or it never presents again; other errors are skipped so the
-/// loop keeps running instead of crashing or freezing.
+/// Maps a surface acquisition status to a recovery action. `Outdated` can reuse
+/// the surface after reconfiguration; `Lost` requires recreating the surface.
 fn surface_recovery(status: &wgpu::CurrentSurfaceTexture) -> SurfaceRecovery {
     match status {
-        wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
-            SurfaceRecovery::Reconfigure
-        }
+        wgpu::CurrentSurfaceTexture::Outdated => SurfaceRecovery::Reconfigure,
+        wgpu::CurrentSurfaceTexture::Lost => SurfaceRecovery::Recreate,
         _ => SurfaceRecovery::Skip,
     }
 }
@@ -774,16 +791,18 @@ mod tests {
     use super::{surface_recovery, SurfaceRecovery};
 
     #[test]
-    fn stale_surface_errors_reconfigure() {
-        // A stale surface must be reconfigured; dropping these (as the original
-        // code did) leaves the window permanently blank/frozen on Wayland.
+    fn outdated_surface_reconfigures() {
         assert_eq!(
             surface_recovery(&wgpu::CurrentSurfaceTexture::Outdated),
             SurfaceRecovery::Reconfigure
         );
+    }
+
+    #[test]
+    fn lost_surface_recreates() {
         assert_eq!(
             surface_recovery(&wgpu::CurrentSurfaceTexture::Lost),
-            SurfaceRecovery::Reconfigure
+            SurfaceRecovery::Recreate
         );
     }
 
