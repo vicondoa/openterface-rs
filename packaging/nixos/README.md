@@ -45,6 +45,7 @@ configuration value:
 | Module option | Runtime variable |
 |---------------|------------------|
 | `logFilter` | `RUST_LOG` |
+| `titlePrefix` | `OPENTERFACE_TITLE_PREFIX` |
 | `mouseIntervalMs` | `OPENTERFACE_MOUSE_INTERVAL_MS` |
 | `throttle.enable` | `OPENTERFACE_THROTTLE` |
 | `throttle.idleDecodeMs` | `OPENTERFACE_IDLE_DECODE_MS` |

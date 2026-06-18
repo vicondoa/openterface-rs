@@ -14,6 +14,7 @@ let
 
   runtimeEnv =
     optionalEnv "RUST_LOG" cfg.logFilter
+    // optionalEnv "OPENTERFACE_TITLE_PREFIX" cfg.titlePrefix
     // optionalEnv "OPENTERFACE_MOUSE_INTERVAL_MS" cfg.mouseIntervalMs
     // lib.optionalAttrs (!cfg.throttle.enable) { OPENTERFACE_THROTTLE = "0"; }
     // optionalEnv "OPENTERFACE_IDLE_DECODE_MS" cfg.throttle.idleDecodeMs
@@ -70,6 +71,13 @@ in
       default = null;
       example = "info,openterface_gui=debug";
       description = "Default `RUST_LOG` filter for the installed wrapper.";
+    };
+
+    titlePrefix = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      example = "[work-ssd] ";
+      description = "Default `OPENTERFACE_TITLE_PREFIX` prepended to GUI window titles.";
     };
 
     mouseIntervalMs = mkOption {

@@ -105,6 +105,14 @@ pub(crate) fn connect(args: &ConnectArgs, _verbose: bool) -> ExitCode {
     connect_impl(args)
 }
 
+#[cfg(feature = "hardware")]
+fn window_title(base: &str) -> String {
+    match std::env::var("OPENTERFACE_TITLE_PREFIX") {
+        Ok(prefix) if !prefix.is_empty() => format!("{prefix}{base}"),
+        _ => base.to_string(),
+    }
+}
+
 #[cfg(not(feature = "hardware"))]
 fn reset_impl(_serial: &Path) -> ExitCode {
     eprintln!(
@@ -197,7 +205,7 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
             session: None,
             frames: None,
             fullscreen,
-            title: "Openterface KVM (dummy)".to_string(),
+            title: window_title("Openterface KVM (dummy)"),
             debug: args.debug,
             input_available: false,
         };
@@ -272,7 +280,7 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
             session: Some(session),
             frames: None,
             fullscreen,
-            title: "Openterface KVM (no video)".to_string(),
+            title: window_title("Openterface KVM (no video)"),
             debug: args.debug,
             input_available,
         };
@@ -322,7 +330,7 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
         session: Some(session),
         frames: Some(frame_rx),
         fullscreen,
-        title: "Openterface KVM".to_string(),
+        title: window_title("Openterface KVM"),
         debug: args.debug,
         input_available,
     };
