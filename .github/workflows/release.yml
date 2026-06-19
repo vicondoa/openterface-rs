@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
   workflow_dispatch:
     inputs:
       publish_crates:
@@ -10,9 +10,7 @@ on:
         type: boolean
         default: false
 
-# Least privilege by default; the publish job opts into contents: write.
-permissions:
-  contents: read
+permissions: {}
 
 env:
   CARGO_TERM_COLOR: always
@@ -22,23 +20,67 @@ env:
 jobs:
   build:
     name: build ${{ matrix.target }}
+    permissions: {}
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
+            nix_system: x86_64-linux
             runner: ubuntu-24.04
           - target: aarch64-unknown-linux-gnu
+            nix_system: aarch64-linux
             runner: ubuntu-24.04-arm   # native arm64 runner (no cross sysroot)
     runs-on: ${{ matrix.runner }}
+    env:
+      CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
+          fetch-depth: 0
           persist-credentials: false
 
+      - name: Detect pending release from CHANGELOG
+        id: detect
+        env:
+          GITHUB_TOKEN: ""
+          ACTIONS_RUNTIME_TOKEN: ""
+        run: |
+          set -euo pipefail
+          latest_header="$(grep -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$' CHANGELOG.md | head -n1 || true)"
+          if [ -z "$latest_header" ]; then
+            echo "::error::Could not find a released version header in CHANGELOG.md"
+            exit 1
+          fi
+          version="$(printf '%s\n' "$latest_header" | sed -E 's/^## \[([0-9]+\.[0-9]+\.[0-9]+)\] - .*/\1/')"
+          tag="v${version}"
+          should_release=true
+          if git rev-parse --verify "refs/tags/${tag}" >/dev/null 2>&1; then
+            should_release=false
+            echo "Tag ${tag} already exists; build job will no-op."
+          else
+            echo "Preparing release ${tag} from CHANGELOG.md."
+          fi
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+          printf 'should_release=%s\n' "$should_release" >> "$GITHUB_OUTPUT"
+
       - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
+        if: steps.detect.outputs.should_release == 'true'
+
+      - uses: Swatinem/rust-cache@8cbdedb5103daa674dcf46d3590fe06a76645684
+        if: steps.detect.outputs.should_release == 'true'
+        with:
+          shared-key: release-${{ runner.os }}
+          save-if: "true"
+          workspaces: |
+            . -> target
 
       - name: Install system libraries (hardware feature)
+        if: steps.detect.outputs.should_release == 'true'
+        env:
+          GITHUB_TOKEN: ""
+          ACTIONS_RUNTIME_TOKEN: ""
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -46,15 +88,35 @@ jobs:
             libwayland-dev libxkbcommon-dev libdecor-0-dev \
             clang libclang-dev
 
+      - name: Install Nix
+        if: steps.detect.outputs.should_release == 'true' && hashFiles('flake.nix') != ''
+        uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Build flake package
+        if: steps.detect.outputs.should_release == 'true' && hashFiles('flake.nix') != ''
+        env:
+          GITHUB_TOKEN: ""
+          ACTIONS_RUNTIME_TOKEN: ""
+        run: nix build .#packages.${{ matrix.nix_system }}.default --print-build-logs
+
       - name: Build (release, --features hardware)
+        if: steps.detect.outputs.should_release == 'true'
+        env:
+          GITHUB_TOKEN: ""
+          ACTIONS_RUNTIME_TOKEN: ""
         run: cargo build ${{ env.BUILD_FLAGS }}
 
       - name: Stage tarball
+        if: steps.detect.outputs.should_release == 'true'
         id: stage
+        env:
+          GITHUB_TOKEN: ""
+          ACTIONS_RUNTIME_TOKEN: ""
         run: |
           set -eu
-          ver="${GITHUB_REF_NAME}"
-          case "$ver" in v*) : ;; *) ver="dev-${GITHUB_SHA::8}" ;; esac
+          ver="${{ steps.detect.outputs.tag }}"
           name="openterface-rs-${ver}-${{ matrix.target }}"
           stagedir="dist/${name}"
           mkdir -p "$stagedir"
@@ -69,12 +131,14 @@ jobs:
           echo "name=${name}" >> "$GITHUB_OUTPUT"
 
       - name: Smoke-test the packaged binary (hardware-free)
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        if: steps.detect.outputs.should_release == 'true' && matrix.target == 'x86_64-unknown-linux-gnu'
+        env:
+          GITHUB_TOKEN: ""
+          ACTIONS_RUNTIME_TOKEN: ""
         run: |
           set -eu
-          # Install into a DESTDIR staging root exactly like a real install, then
-          # run the binary with no hardware and no display.
-          dest="$(mktemp -d)"
+          dest="dist/smoke-root"
+          rm -rf "$dest"
           install -D -m 0755 "dist/${{ steps.stage.outputs.name }}/openterface-rs" \
             "$dest/usr/local/bin/openterface-rs"
           bin="$dest/usr/local/bin/openterface-rs"
@@ -82,11 +146,11 @@ jobs:
           "$bin" --help
           "$bin" scan
           "$bin" status
-          # install.sh must at least parse and accept --help.
           sh -n packaging/install.sh
           sh packaging/install.sh --help >/dev/null
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: steps.detect.outputs.should_release == 'true'
         with:
           name: ${{ steps.stage.outputs.name }}
           path: |
@@ -94,70 +158,119 @@ jobs:
             dist/${{ steps.stage.outputs.name }}.tar.gz.sha256
           if-no-files-found: error
 
-  publish:
-    name: publish GitHub Release
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+  release:
+    name: release
+    needs: [build]
     runs-on: ubuntu-24.04
     permissions:
-      contents: write   # only this job can write releases
+      contents: write
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
+          fetch-depth: 0
           persist-credentials: false
 
+      - name: Detect pending release from CHANGELOG
+        id: detect
+        run: |
+          set -euo pipefail
+          latest_header="$(grep -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$' CHANGELOG.md | head -n1 || true)"
+          if [ -z "$latest_header" ]; then
+            echo "::error::Could not find a released version header in CHANGELOG.md"
+            exit 1
+          fi
+          version="$(printf '%s\n' "$latest_header" | sed -E 's/^## \[([0-9]+\.[0-9]+\.[0-9]+)\] - .*/\1/')"
+          tag="v${version}"
+          should_release=true
+          if git rev-parse --verify "refs/tags/${tag}" >/dev/null 2>&1; then
+            should_release=false
+            echo "Tag ${tag} already exists; release job will skip GitHub release creation."
+          fi
+          awk -v version="$version" '
+            $0 ~ ("^## \\[" version "\\] - ") { in_section = 1; next }
+            in_section && /^## \[/ { exit }
+            in_section { print }
+          ' CHANGELOG.md > release-notes.md
+          if ! grep -q '[^[:space:]]' release-notes.md; then
+            echo "::error::CHANGELOG.md section for ${tag} is empty"
+            exit 1
+          fi
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+          printf 'should_release=%s\n' "$should_release" >> "$GITHUB_OUTPUT"
+
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        if: steps.detect.outputs.should_release == 'true'
         with:
           path: artifacts
           merge-multiple: true
 
       - name: Assemble release assets + combined SHA256SUMS
+        if: steps.detect.outputs.should_release == 'true'
         run: |
           set -eu
           mkdir -p release
           cp artifacts/*.tar.gz release/
           cp packaging/install.sh release/
           cp packaging/udev/60-openterface.rules release/
-          # No "./" prefix: install.sh matches " <tarball>$" in SHA256SUMS.
           ( cd release && sha256sum -- *.tar.gz install.sh 60-openterface.rules > SHA256SUMS )
           cat release/SHA256SUMS
           ls -l release
 
-      - name: Create / update the GitHub Release
+      - name: Create git tag
+        if: steps.detect.outputs.should_release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -eu
-          ver="${GITHUB_REF_NAME}"
-          notes="Automated release for ${ver}. See CHANGELOG.md. Verify downloads against SHA256SUMS."
-          if gh release view "$ver" >/dev/null 2>&1; then
-            gh release upload "$ver" release/* --clobber
+          set -euo pipefail
+          tag="${{ steps.detect.outputs.tag }}"
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" >/dev/null 2>&1; then
+            echo "Tag ${tag} already exists on origin."
           else
-            gh release create "$ver" release/* \
-              --title "$ver" --notes "$notes" --verify-tag
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref="refs/tags/${tag}" \
+              -f sha="${GITHUB_SHA}"
           fi
 
-  crates-io:
-    name: publish to crates.io (manual)
-    # Only when explicitly dispatched with publish_crates=true; never automatic.
-    if: github.event_name == 'workflow_dispatch' && inputs.publish_crates == true
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
-        with:
-          persist-credentials: false
+      - name: Create or update the GitHub Release
+        if: steps.detect.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ steps.detect.outputs.tag }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" release/* --clobber
+            gh release edit "$tag" --title "$tag" --notes-file release-notes.md
+          else
+            gh release create "$tag" release/* \
+              --title "$tag" \
+              --notes-file release-notes.md \
+              --verify-tag
+          fi
+
       - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_crates == true
+
+      - uses: Swatinem/rust-cache@8cbdedb5103daa674dcf46d3590fe06a76645684
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_crates == true
+        with:
+          shared-key: release-${{ runner.os }}
+          workspaces: |
+            . -> target
+
       - name: Install system libraries
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_crates == true
         run: |
           sudo apt-get update
           sudo apt-get install -y libudev-dev libv4l-dev libwayland-dev libxkbcommon-dev clang libclang-dev
+
       - name: Publish in dependency order
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_crates == true
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           set -eu
-          # Dependency order: core -> test-support -> gui -> cli. Each waits for
-          # the index to settle before the next.
           for crate in openterface-core openterface-test-support openterface-gui openterface-cli; do
             cargo publish -p "$crate" --locked
             sleep 30

@@ -7,6 +7,8 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- CI now validates `CHANGELOG.md` structure on pull requests and requires
+  changelog updates whenever Rust, Cargo, or `scripts/` changes land.
 - Dependabot configuration for weekly GitHub Actions updates with a 14-day
   cooldown.
 - Focused GUI paste: `Ctrl+Shift+V` reads the local Wayland clipboard while
@@ -20,6 +22,10 @@ All notable changes to this project are documented here. The format is based on
   the default keeps middle-click forwarding to the target.
 
 ### Changed
+- Releases are now changelog-driven on `main`: a new `## [X.Y.Z] - YYYY-MM-DD`
+  header auto-creates tag `vX.Y.Z`, reuses that section as the GitHub Release
+  notes, and publishes the release assets without exposing GitHub tokens to the
+  build steps.
 - Updated `wgpu` to 29 and enabled only the Linux renderer features used by the
   Wayland frontend, removing the unmaintained transitive `paste` dependency from
   the lockfile.

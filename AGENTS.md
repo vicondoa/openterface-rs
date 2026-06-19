@@ -66,13 +66,37 @@ Narrow, as in nixling: trivial one-line/no-semantic fixes and documentation-only
 changes may skip the gate unless load-bearing; a time-critical hotfix may skip
 the pre-fix gate but MUST run a post-fix panel. When in doubt, run the panel.
 
-## Versioning & changelog
+## Changelog
 
-- [Semantic Versioning](https://semver.org/) + [Keep a Changelog](https://keepachangelog.com/).
-- Entries accumulate under `## [Unreleased]` during development.
-- On release, rename to `## [X.Y.Z] - YYYY-MM-DD`, collapse to the standard
-  groups (Added/Changed/Fixed/Deprecated/Removed/Security), and **strip all
-  internal process markers** (wave/finding tags) from the released prose.
+Every PR that changes code (Rust sources, Cargo.toml, scripts) **must** update
+`CHANGELOG.md`. The CI gate `changelog-check` enforces this.
+
+### Format
+
+Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/):
+
+- Add entries under `## [Unreleased]` during development.
+- Released sections must use `## [X.Y.Z] - YYYY-MM-DD` headers, stay in
+  descending order, and keep unique Semantic Versioning numbers.
+- When ready to release, move unreleased entries to a new
+  `## [X.Y.Z] - YYYY-MM-DD` header and strip internal process markers
+  (wave/finding tags) from the released prose.
+- Merging to `main` with a new version header triggers an automatic release
+  (tag + GitHub Release + binary assets).
+
+### Versioning
+
+- Patch (X.Y.**Z**): bug fixes, docs, CI
+- Minor (X.**Y**.0): new features, non-breaking changes
+- Major (**X**.0.0): breaking API/CLI changes
+
+### What happens on merge to main
+
+The `release.yml` workflow:
+1. Parses `CHANGELOG.md` for the latest version header.
+2. If no matching git tag exists, auto-creates tag `vX.Y.Z`.
+3. Builds the release tarballs (currently x86_64-linux and aarch64-linux).
+4. Publishes a GitHub Release with that changelog section as the release notes.
 
 ## Commit conventions
 
