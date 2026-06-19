@@ -14,6 +14,22 @@ permissions:
   contents: read
 
 jobs:
+  changelog-check:
+    name: changelog-check
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate CHANGELOG.md requirements
+        run: |
+          scripts/changelog-check.sh \
+            --base-ref "${{ github.event.pull_request.base.sha }}" \
+            --head-ref "${{ github.event.pull_request.head.sha }}"
+
   check:
     name: fmt / clippy / test (no system libs)
     runs-on: ubuntu-latest
@@ -24,6 +40,13 @@ jobs:
 
       - name: Install Rust toolchain (from rust-toolchain.toml)
         uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
+
+      - uses: Swatinem/rust-cache@8cbdedb5103daa674dcf46d3590fe06a76645684
+        with:
+          shared-key: release-${{ runner.os }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          workspaces: |
+            . -> target
 
       # NOTE: deliberately NO apt system libraries here. The default workspace
       # build/test must pass with no udev/v4l/Wayland/Vulkan installed — that is
@@ -55,6 +78,13 @@ jobs:
 
       - name: Install Rust toolchain (from rust-toolchain.toml)
         uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
+
+      - uses: Swatinem/rust-cache@8cbdedb5103daa674dcf46d3590fe06a76645684
+        with:
+          shared-key: release-${{ runner.os }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          workspaces: |
+            . -> target
 
       - name: Install system libraries
         run: |
@@ -89,14 +119,22 @@ jobs:
       - name: Install Rust toolchain (from rust-toolchain.toml)
         uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
 
+      - uses: Swatinem/rust-cache@8cbdedb5103daa674dcf46d3590fe06a76645684
+        with:
+          shared-key: release-${{ runner.os }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          workspaces: |
+            . -> target
+
       - name: shellcheck + syntax
         run: |
           sudo apt-get update && sudo apt-get install -y shellcheck
           # --severity=warning: info/style notes are advisory and vary by
           # shellcheck version across runners; warning+ still catches real bugs.
-          shellcheck --severity=warning packaging/install.sh tools/kvm-debug.sh
+          shellcheck --severity=warning packaging/install.sh tools/kvm-debug.sh scripts/changelog-check.sh
           sh -n packaging/install.sh
           bash -n tools/kvm-debug.sh
+          bash -n scripts/changelog-check.sh
 
       - name: udev rule presence + perms metadata
         run: |
@@ -149,6 +187,12 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
+      - uses: Swatinem/rust-cache@8cbdedb5103daa674dcf46d3590fe06a76645684
+        with:
+          shared-key: release-${{ runner.os }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          workspaces: |
+            . -> target
       - name: Install software Vulkan + windowing libs
         run: |
           sudo apt-get update
