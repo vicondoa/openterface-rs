@@ -1,5 +1,6 @@
-# Provides pre-built openterface-rs binaries from GitHub Releases.
-# Returns a derivation when a release manifest exists, null otherwise.
+# Pre-built openterface-rs from GitHub Releases.
+# Uses autoPatchelfHook to fix ELF paths for any consumer's nixpkgs.
+# Returns a derivation when release hashes exist, null otherwise.
 { pkgs, lib ? pkgs.lib }:
 
 let
@@ -12,45 +13,35 @@ if hasBinary then
   pkgs.stdenv.mkDerivation {
     pname = "openterface-rs";
     version = manifest.version;
-
     src = pkgs.fetchurl {
       inherit (manifest.binaries."openterface-rs") url hash;
     };
-
-    nativeBuildInputs = [ pkgs.makeWrapper ];
+    nativeBuildInputs = [ pkgs.autoPatchelfHook ];
+    buildInputs = with pkgs; [
+      stdenv.cc.cc.lib udev libv4l wayland libxkbcommon libdecor
+      vulkan-loader libGL
+    ];
+    sourceRoot = ".";
     dontConfigure = true;
     dontBuild = true;
-
     installPhase = ''
       runHook preInstall
-      mkdir -p $out/bin $out/lib/udev/rules.d
-      install -Dm755 openterface-rs $out/bin/openterface-rs
-      if [ -f 60-openterface.rules ]; then
-        install -Dm0644 60-openterface.rules $out/lib/udev/rules.d/60-openterface.rules
+      dir=$(find . -maxdepth 1 -type d -name "openterface-rs-*" | head -1)
+      if [ -n "$dir" ]; then
+        install -Dm755 "$dir/openterface-rs" $out/bin/openterface-rs
+        if [ -f "$dir/60-openterface.rules" ]; then
+          install -Dm644 "$dir/60-openterface.rules" $out/lib/udev/rules.d/60-openterface.rules
+        fi
+      else
+        install -Dm755 openterface-rs $out/bin/openterface-rs
+        [ -f 60-openterface.rules ] && install -Dm644 60-openterface.rules $out/lib/udev/rules.d/60-openterface.rules
       fi
       runHook postInstall
     '';
-
-    # Runtime deps that the binary dlopens.
-    postInstall = ''
-      wrapProgram $out/bin/openterface-rs \
-        --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath (with pkgs; [
-          udev
-          libv4l
-          wayland
-          libxkbcommon
-          libdecor
-          vulkan-loader
-          libGL
-        ])}"
-    '';
-
-    meta = with lib; {
-      description = "Openterface Mini-KVM controller (pre-built binary)";
-      homepage = "https://github.com/vicondoa/openterface-rs";
-      license = licenses.asl20;
-      platforms = [ manifest.system ];
+    meta = {
+      description = "Openterface Mini-KVM controller (pre-built)";
       mainProgram = "openterface-rs";
+      platforms = [ manifest.system ];
     };
   }
 else

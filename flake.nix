@@ -147,7 +147,7 @@
           '';
       in
       {
-        packages.default = openterface-rs;
+        packages.default = let prebuilt = import ./nix/prebuilt.nix { inherit pkgs; }; in if prebuilt != null then prebuilt else openterface-rs;
         packages.openterface-rs = openterface-rs;
 
         checks.nixos-module = nixosModuleCheck;
