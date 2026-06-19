@@ -249,6 +249,67 @@ jobs:
               --verify-tag
           fi
 
+      - name: Install Nix (for hash computation)
+        if: steps.detect.outputs.should_release == 'true'
+        uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Compute SRI hashes and write prebuilt manifest
+        if: steps.detect.outputs.should_release == 'true'
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.detect.outputs.version }}"
+          REPO="${{ github.repository }}"
+
+          mkdir -p nix
+
+          tarball="release/openterface-rs-v${VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          if [ ! -f "$tarball" ]; then
+            tarball="$(find release/ -maxdepth 1 -name '*x86_64*linux*.tar.gz' | head -n1 || true)"
+          fi
+
+          if [ -z "$tarball" ] || [ ! -f "$tarball" ]; then
+            echo "WARNING: No x86_64 Linux tarball found; skipping prebuilt manifest update"
+            exit 0
+          fi
+
+          sri="$(nix hash file --type sha256 --sri "$tarball")"
+          url="https://github.com/${REPO}/releases/download/v${VERSION}/$(basename "$tarball")"
+
+          cat > nix/prebuilt.json <<EOF
+          {
+            "version": "$VERSION",
+            "system": "x86_64-linux",
+            "binaries": {
+              "openterface-rs": {
+                "url": "$url",
+                "hash": "$sri"
+              }
+            }
+          }
+          EOF
+
+      - name: Commit prebuilt manifest
+        if: steps.detect.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch origin main
+          git checkout -B main origin/main
+          git add nix/prebuilt.json
+          git diff --cached --quiet && exit 0
+          git commit -m "release: update prebuilt manifest for v${{ steps.detect.outputs.version }}
+
+          Auto-generated after publishing GitHub Release.
+          Consumers: update the flake input to get pre-built binaries."
+          git push origin HEAD:main
+
       - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
         if: github.event_name == 'workflow_dispatch' && inputs.publish_crates == true
 
