@@ -164,6 +164,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
@@ -291,24 +292,37 @@ jobs:
           }
           EOF
 
-      - name: Commit prebuilt manifest
+      - name: Open prebuilt manifest PR
         if: steps.detect.outputs.should_release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          version="${{ steps.detect.outputs.version }}"
+          branch="prebuilt-v${version}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git fetch origin main
-          git checkout -B main origin/main
+          git checkout -B "$branch" origin/main
           git add nix/prebuilt.json
           git diff --cached --quiet && exit 0
-          git commit -m "release: update prebuilt manifest for v${{ steps.detect.outputs.version }}
+          git commit -m "release: update prebuilt manifest for v${version}
 
           Auto-generated after publishing GitHub Release.
           Consumers: update the flake input to get pre-built binaries."
-          git push origin HEAD:main
+          git push --force-with-lease origin HEAD:"$branch"
+          if gh pr view "$branch" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh pr edit "$branch" --repo "$GITHUB_REPOSITORY" \
+              --title "release: update prebuilt manifest for v${version}" \
+              --body "Generated after publishing v${version}. Consumers should update their flake input after this PR merges."
+          else
+            gh pr create --repo "$GITHUB_REPOSITORY" \
+              --base main \
+              --head "$branch" \
+              --title "release: update prebuilt manifest for v${version}" \
+              --body "Generated after publishing v${version}. Consumers should update their flake input after this PR merges."
+          fi
 
       - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
         if: github.event_name == 'workflow_dispatch' && inputs.publish_crates == true
