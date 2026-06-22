@@ -1530,7 +1530,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "openterface-cli"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -1544,7 +1544,7 @@ dependencies = [
 
 [[package]]
 name = "openterface-core"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "nix 0.29.0",
  "openterface-test-support",
@@ -1559,7 +1559,7 @@ dependencies = [
 
 [[package]]
 name = "openterface-gui"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "bytemuck",
  "openterface-core",
@@ -1574,7 +1574,7 @@ dependencies = [
 
 [[package]]
 name = "openterface-test-support"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "openterface-core",
 ]

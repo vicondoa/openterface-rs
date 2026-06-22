@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-06-22
+
 ### Added
 - CI now validates `CHANGELOG.md` structure on pull requests and requires
   changelog updates whenever Rust, Cargo, or `scripts/` changes land.
