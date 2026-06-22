@@ -41,6 +41,8 @@ All notable changes to this project are documented here. The format is based on
 - Prebuilt Nix packages now wrap `LD_LIBRARY_PATH` with the same Wayland,
   libdecor, xkbcommon, Vulkan, and V4L runtime libraries as source builds, so
   winit/wgpu `dlopen` lookups work when consuming `packages.default`.
+- Prebuilt Nix packages are now selected only for their matching host system;
+  other systems fall back to source builds instead of failing metadata checks.
 - GUI window no longer disappears (while the process keeps rendering) after a
   focus/visibility change such as returning to the window after a niri workspace
   switch. Root cause: winit's client-side decorations (CSD) commit the toplevel

@@ -7,6 +7,7 @@ let
   manifest = builtins.fromJSON (builtins.readFile ./prebuilt.json);
   hasBinary =
     manifest.version != null
+    && manifest.system == pkgs.stdenv.hostPlatform.system
     && builtins.hasAttr "openterface-rs" manifest.binaries;
   runtimeLibs = with pkgs; [
     stdenv.cc.cc.lib udev libv4l wayland libxkbcommon libdecor
