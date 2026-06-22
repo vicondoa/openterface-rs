@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+- Release automation now opens or updates a prebuilt-manifest PR instead of
+  pushing directly to protected `main`.
+
 ## [1.0.3] - 2026-06-22
 
 ### Added
