@@ -8,6 +8,10 @@ let
   hasBinary =
     manifest.version != null
     && builtins.hasAttr "openterface-rs" manifest.binaries;
+  runtimeLibs = with pkgs; [
+    stdenv.cc.cc.lib udev libv4l wayland libxkbcommon libdecor
+    vulkan-loader libGL
+  ];
 in
 if hasBinary then
   pkgs.stdenv.mkDerivation {
@@ -16,11 +20,8 @@ if hasBinary then
     src = pkgs.fetchurl {
       inherit (manifest.binaries."openterface-rs") url hash;
     };
-    nativeBuildInputs = [ pkgs.autoPatchelfHook ];
-    buildInputs = with pkgs; [
-      stdenv.cc.cc.lib udev libv4l wayland libxkbcommon libdecor
-      vulkan-loader libGL
-    ];
+    nativeBuildInputs = with pkgs; [ autoPatchelfHook makeWrapper ];
+    buildInputs = runtimeLibs;
     sourceRoot = ".";
     dontConfigure = true;
     dontBuild = true;
@@ -37,6 +38,10 @@ if hasBinary then
         [ -f 60-openterface.rules ] && install -Dm644 60-openterface.rules $out/lib/udev/rules.d/60-openterface.rules
       fi
       runHook postInstall
+    '';
+    postFixup = ''
+      wrapProgram $out/bin/openterface-rs \
+        --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath runtimeLibs}"
     '';
     meta = {
       description = "Openterface Mini-KVM controller (pre-built)";

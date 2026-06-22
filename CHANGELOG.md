@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-06-22
+
 ### Added
 - CI now validates `CHANGELOG.md` structure on pull requests and requires
   changelog updates whenever Rust, Cargo, or `scripts/` changes land.
@@ -36,6 +38,9 @@ All notable changes to this project are documented here. The format is based on
   client-side title bar. See the fix below for why.
 
 ### Fixed
+- Prebuilt Nix packages now wrap `LD_LIBRARY_PATH` with the same Wayland,
+  libdecor, xkbcommon, Vulkan, and V4L runtime libraries as source builds, so
+  winit/wgpu `dlopen` lookups work when consuming `packages.default`.
 - GUI window no longer disappears (while the process keeps rendering) after a
   focus/visibility change such as returning to the window after a niri workspace
   switch. Root cause: winit's client-side decorations (CSD) commit the toplevel
