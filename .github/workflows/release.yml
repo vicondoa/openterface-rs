@@ -252,7 +252,7 @@ jobs:
 
       - name: Install Nix (for hash computation)
         if: steps.detect.outputs.should_release == 'true'
-        uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b
+        uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
