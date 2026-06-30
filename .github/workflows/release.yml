@@ -68,7 +68,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
         if: steps.detect.outputs.should_release == 'true'
 
-      - uses: Swatinem/rust-cache@8cbdedb5103daa674dcf46d3590fe06a76645684
+      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0
         if: steps.detect.outputs.should_release == 'true'
         with:
           shared-key: release-${{ runner.os }}
@@ -339,7 +339,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6
         if: github.event_name == 'workflow_dispatch' && inputs.publish_crates == true
 
-      - uses: Swatinem/rust-cache@8cbdedb5103daa674dcf46d3590fe06a76645684
+      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0
         if: github.event_name == 'workflow_dispatch' && inputs.publish_crates == true
         with:
           shared-key: release-${{ runner.os }}
