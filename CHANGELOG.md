@@ -17,6 +17,8 @@ All notable changes to this project are documented here. The format is based on
   that content cap.
 
 ### Fixed
+- Updated `anyhow` to 1.0.103 to resolve the `Error::downcast_mut`
+  unsoundness advisory flagged by cargo-deny.
 - Release automation now opens or updates a prebuilt-manifest PR instead of
   pushing directly to protected `main`.
 - Pointer leave events no longer clear keyboard/modifier state; only keyboard
