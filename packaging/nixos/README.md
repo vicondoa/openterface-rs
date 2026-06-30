@@ -53,6 +53,7 @@ configuration value:
 | `throttle.idleWatchdogMs` | `OPENTERFACE_IDLE_WATCHDOG_MS` |
 | `fullscreen` | `OPENTERFACE_FULLSCREEN` |
 | `useLibdecor` | `OPENTERFACE_USE_LIBDECOR` |
+| `windowMaxSize` | `OPENTERFACE_WINDOW_MAX_SIZE` |
 | `requireGpu` | `OPENTERFACE_REQUIRE_GPU` |
 | `paste.enable` | `OPENTERFACE_ENABLE_PASTE` |
 | `paste.shortcut` | `OPENTERFACE_PASTE_SHORTCUT` |
@@ -98,7 +99,8 @@ The runtime contract is:
 - The binary is `openterface-rs`; it accepts `connect --video=<path> --serial=<path>`
   (compatible with a wrapper that auto-detects the nodes).
 - The `OPENTERFACE_*` runtime tunables (mouse pacing, idle-decode throttle,
-  fullscreen) are honored — see [`docs/reference/env-vars.md`](../../docs/reference/env-vars.md).
+  fullscreen, window max size) are honored — see
+  [`docs/reference/env-vars.md`](../../docs/reference/env-vars.md).
 
 Before switching a production KVM over, run the
 [closed-loop harness](../../docs/how-to/closed-loop-harness.md) against the real

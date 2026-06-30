@@ -17,7 +17,7 @@ use openterface_core::protocol::hid::modifier_bit;
 use openterface_core::session::Session;
 use openterface_core::video::Frame;
 use winit::application::ApplicationHandler;
-use winit::dpi::LogicalSize;
+use winit::dpi::PhysicalSize;
 use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::platform::wayland::WindowAttributesExtWayland;
@@ -47,6 +47,29 @@ pub struct RunConfig {
     pub debug: bool,
     /// Whether serial input forwarding is backed by a real CH9329 transport.
     pub input_available: bool,
+    /// Maximum video/content size `(width, height)` in physical pixels.
+    pub window_max_content_size: Option<(u32, u32)>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct WindowSizeHints {
+    initial: (u32, u32),
+    min: (u32, u32),
+    max: Option<(u32, u32)>,
+}
+
+fn window_size_hints(max_content_size: Option<(u32, u32)>, fullscreen: bool) -> WindowSizeHints {
+    let initial = max_content_size.unwrap_or((1280, 720));
+    let min = max_content_size
+        .map(|(width, height)| (width.min(640), height.min(480)))
+        .unwrap_or((640, 480));
+    let max = max_content_size.filter(|_| !fullscreen);
+
+    WindowSizeHints { initial, min, max }
+}
+
+fn physical_size((width, height): (u32, u32)) -> PhysicalSize<u32> {
+    PhysicalSize::new(width, height)
 }
 
 /// Runs the display loop until the window is closed. Wayland-only.
@@ -458,15 +481,21 @@ impl ApplicationHandler for App {
         if self.gpu.is_some() {
             return;
         }
+        let size_hints = window_size_hints(self.cfg.window_max_content_size, self.cfg.fullscreen);
+
         let mut attrs = Window::default_attributes()
             .with_title(self.cfg.title.clone())
             // Wayland app-id (window rules / taskbar grouping).
             .with_name("openterface-rs", "openterface-rs")
-            // Open at a 16:9 size so the window starts at the capture's shape
-            // (the frame is letterboxed if the user later resizes off-ratio).
-            .with_inner_size(LogicalSize::new(1280.0, 720.0))
+            // Open at the capped physical content size so the first compositor
+            // configure uses the capture shape. The frame is still letterboxed
+            // if the user later resizes below the cap or off-ratio.
+            .with_inner_size(physical_size(size_hints.initial))
             // Minimum sensible window size.
-            .with_min_inner_size(LogicalSize::new(640.0, 480.0));
+            .with_min_inner_size(physical_size(size_hints.min));
+        if let Some(max_size) = size_hints.max {
+            attrs = attrs.with_max_inner_size(physical_size(max_size));
+        }
         // Window decorations. On a CSD-only compositor (niri) winit's decorated
         // path draws the title bar itself (SCTK client-side decorations) using
         // its own decoration subsurfaces, and commits the toplevel out of band
@@ -484,6 +513,15 @@ impl ApplicationHandler for App {
             attrs = attrs.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
         }
         let window = std::sync::Arc::new(el.create_window(attrs).expect("create window"));
+        // Winit's Wayland backend can only add client-side decoration borders to
+        // xdg_toplevel size hints after the CSD frame exists. Reapplying the
+        // inner-size hints here keeps the video cap at native physical pixels
+        // while the advertised outer geometry also accounts for titlebar chrome.
+        window.set_min_inner_size(Some(physical_size(size_hints.min)));
+        if let Some(max_size) = size_hints.max {
+            window.set_max_inner_size(Some(physical_size(max_size)));
+        }
+        let _ = window.request_inner_size(physical_size(size_hints.initial));
 
         let instance = wgpu::Instance::default();
         let surface = instance
@@ -589,10 +627,7 @@ impl ApplicationHandler for App {
                     self.release_all();
                 }
             }
-            WindowEvent::CursorLeft { .. } => {
-                self.mod_byte = Modifiers::NONE;
-                self.release_all();
-            }
+            WindowEvent::CursorLeft { .. } => {}
             WindowEvent::KeyboardInput { event, .. } => {
                 if let Some(usage) = physical_to_hid(event.physical_key) {
                     let pressed = event.state == ElementState::Pressed;
@@ -797,7 +832,7 @@ fn decorations_enabled(var: Option<String>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{surface_recovery, SurfaceRecovery};
+    use super::{surface_recovery, window_size_hints, SurfaceRecovery, WindowSizeHints};
 
     #[test]
     fn outdated_surface_reconfigures() {
@@ -824,6 +859,54 @@ mod tests {
         assert_eq!(
             surface_recovery(&wgpu::CurrentSurfaceTexture::Validation),
             SurfaceRecovery::Skip
+        );
+    }
+
+    #[test]
+    fn window_size_hints_default_to_legacy_720p_without_cap() {
+        assert_eq!(
+            window_size_hints(None, false),
+            WindowSizeHints {
+                initial: (1280, 720),
+                min: (640, 480),
+                max: None,
+            }
+        );
+    }
+
+    #[test]
+    fn window_size_hints_open_at_cap_and_keep_sensible_minimum() {
+        assert_eq!(
+            window_size_hints(Some((1920, 1080)), false),
+            WindowSizeHints {
+                initial: (1920, 1080),
+                min: (640, 480),
+                max: Some((1920, 1080)),
+            }
+        );
+    }
+
+    #[test]
+    fn window_size_hints_allow_small_caps() {
+        assert_eq!(
+            window_size_hints(Some((320, 240)), false),
+            WindowSizeHints {
+                initial: (320, 240),
+                min: (320, 240),
+                max: Some((320, 240)),
+            }
+        );
+    }
+
+    #[test]
+    fn window_size_hints_keep_native_restore_size_for_fullscreen() {
+        assert_eq!(
+            window_size_hints(Some((1920, 1080)), true),
+            WindowSizeHints {
+                initial: (1920, 1080),
+                min: (640, 480),
+                max: None,
+            }
         );
     }
 

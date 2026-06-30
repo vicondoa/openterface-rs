@@ -265,32 +265,44 @@ jobs:
           REPO="${{ github.repository }}"
 
           mkdir -p nix
+          rows="$(mktemp)"
 
-          tarball="release/openterface-rs-v${VERSION}-x86_64-unknown-linux-gnu.tar.gz"
-          if [ ! -f "$tarball" ]; then
-            tarball="$(find release/ -maxdepth 1 -name '*x86_64*linux*.tar.gz' | head -n1 || true)"
-          fi
+          for tarball in release/openterface-rs-v"${VERSION}"-*.tar.gz; do
+            [ -f "$tarball" ] || continue
+            case "$(basename "$tarball")" in
+              *-x86_64-unknown-linux-gnu.tar.gz) system="x86_64-linux" ;;
+              *-aarch64-unknown-linux-gnu.tar.gz) system="aarch64-linux" ;;
+              *)
+                echo "WARNING: skipping unrecognized release tarball: $tarball"
+                continue
+                ;;
+            esac
 
-          if [ -z "$tarball" ] || [ ! -f "$tarball" ]; then
-            echo "WARNING: No x86_64 Linux tarball found; skipping prebuilt manifest update"
+            sri="$(nix hash file --type sha256 --sri "$tarball")"
+            url="https://github.com/${REPO}/releases/download/v${VERSION}/$(basename "$tarball")"
+            printf '%s\t%s\t%s\n' "$system" "$url" "$sri" >> "$rows"
+          done
+
+          if [ ! -s "$rows" ]; then
+            echo "WARNING: No supported Linux tarballs found; skipping prebuilt manifest update"
             exit 0
           fi
 
-          sri="$(nix hash file --type sha256 --sri "$tarball")"
-          url="https://github.com/${REPO}/releases/download/v${VERSION}/$(basename "$tarball")"
+          python3 - "$VERSION" "$rows" > nix/prebuilt.json <<'PY'
+          import json
+          import sys
 
-          cat > nix/prebuilt.json <<EOF
-          {
-            "version": "$VERSION",
-            "system": "x86_64-linux",
-            "binaries": {
-              "openterface-rs": {
-                "url": "$url",
-                "hash": "$sri"
-              }
-            }
-          }
-          EOF
+          version, rows_path = sys.argv[1], sys.argv[2]
+          manifest = {"version": version, "binaries": {}}
+          with open(rows_path, encoding="utf-8") as rows:
+              for line in rows:
+                  system, url, hash_ = line.rstrip("\n").split("\t")
+                  manifest["binaries"][system] = {
+                      "openterface-rs": {"url": url, "hash": hash_}
+                  }
+          json.dump(manifest, sys.stdout, indent=2)
+          print()
+          PY
 
       - name: Open prebuilt manifest PR
         if: steps.detect.outputs.should_release == 'true'

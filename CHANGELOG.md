@@ -6,9 +6,23 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-06-30
+
+### Added
+- `connect --window-max-size WIDTHxHEIGHT` and
+  `OPENTERFACE_WINDOW_MAX_SIZE` cap the GUI content area in physical pixels; by
+  default the cap is the negotiated capture size so the viewer advertises "do
+  not upscale above native" to Wayland compositors. When client-side decorations
+  are enabled, the Wayland max-size hint includes the titlebar/chrome around
+  that content cap.
+
 ### Fixed
+- Updated `anyhow` to 1.0.103 to resolve the `Error::downcast_mut`
+  unsoundness advisory flagged by cargo-deny.
 - Release automation now opens or updates a prebuilt-manifest PR instead of
   pushing directly to protected `main`.
+- Pointer leave events no longer clear keyboard/modifier state; only keyboard
+  focus loss or window close releases held target input.
 
 ## [1.0.3] - 2026-06-22
 
@@ -138,7 +152,9 @@ CH9329 injection moving the target cursor).
 - `OPENTERFACE_USE_LIBDECOR=0` falls back to a bare xdg-shell window; decoration
   negotiation is handled by winit.
 
-[Unreleased]: https://github.com/vicondoa/openterface-rs/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/vicondoa/openterface-rs/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/vicondoa/openterface-rs/compare/v1.0.3...v1.1.0
+[1.0.3]: https://github.com/vicondoa/openterface-rs/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/vicondoa/openterface-rs/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/vicondoa/openterface-rs/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/vicondoa/openterface-rs/releases/tag/v1.0.0

@@ -100,6 +100,9 @@ jobs:
           cargo clippy -p openterface-cli --features hardware --all-targets -- -D warnings
           cargo clippy -p openterface-gui --features display --all-targets -- -D warnings
 
+      - name: Display unit tests
+        run: cargo test -p openterface-gui --features display --lib
+
       - name: Release-profile hardware build
         run: cargo build -p openterface-cli --release --locked --features hardware
 

@@ -30,8 +30,8 @@ hardware = [
 [dependencies]
 openterface-core.workspace = true
 openterface-gui = { workspace = true, optional = true }
-clap = { version = "4", features = ["derive"] }
-anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+anyhow = "1.0.103"
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

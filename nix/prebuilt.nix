@@ -5,10 +5,20 @@
 
 let
   manifest = builtins.fromJSON (builtins.readFile ./prebuilt.json);
-  hasBinary =
-    manifest.version != null
-    && manifest.system == pkgs.stdenv.hostPlatform.system
-    && builtins.hasAttr "openterface-rs" manifest.binaries;
+  system = pkgs.stdenv.hostPlatform.system;
+  binaries = manifest.binaries or { };
+  systemBinaries = binaries.${system} or { };
+  newBinary = systemBinaries."openterface-rs" or null;
+  legacyBinary =
+    if (manifest.system or null) == system
+    then binaries."openterface-rs" or null
+    else null;
+  binary = if newBinary != null then newBinary else legacyBinary;
+  hasBinary = manifest.version != null && binary != null;
+  platforms =
+    if manifest ? system
+    then [ manifest.system ]
+    else builtins.attrNames binaries;
   runtimeLibs = with pkgs; [
     stdenv.cc.cc.lib udev libv4l wayland libxkbcommon libdecor
     vulkan-loader libGL
@@ -19,7 +29,7 @@ if hasBinary then
     pname = "openterface-rs";
     version = manifest.version;
     src = pkgs.fetchurl {
-      inherit (manifest.binaries."openterface-rs") url hash;
+      inherit (binary) url hash;
     };
     nativeBuildInputs = with pkgs; [ autoPatchelfHook makeWrapper ];
     buildInputs = runtimeLibs;
@@ -47,7 +57,7 @@ if hasBinary then
     meta = {
       description = "Openterface Mini-KVM controller (pre-built)";
       mainProgram = "openterface-rs";
-      platforms = [ manifest.system ];
+      inherit platforms;
     };
   }
 else

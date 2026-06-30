@@ -22,6 +22,7 @@ let
     // optionalEnv "OPENTERFACE_IDLE_WATCHDOG_MS" cfg.throttle.idleWatchdogMs
     // optionalBoolEnv "OPENTERFACE_FULLSCREEN" cfg.fullscreen
     // optionalEnv "OPENTERFACE_USE_LIBDECOR" (boolEnv cfg.useLibdecor)
+    // optionalEnv "OPENTERFACE_WINDOW_MAX_SIZE" cfg.windowMaxSize
     // optionalEnv "OPENTERFACE_ENABLE_PASTE" (boolEnv cfg.paste.enable)
     // optionalEnv "OPENTERFACE_PASTE_SHORTCUT" cfg.paste.shortcut
     // optionalEnv "OPENTERFACE_MIDDLE_CLICK_PASTE" cfg.paste.middleClick
@@ -109,6 +110,17 @@ in
       type = types.bool;
       default = false;
       description = "Set `OPENTERFACE_REQUIRE_GPU=1`; mostly useful for render tests.";
+    };
+
+    windowMaxSize = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      example = "1920x1080";
+      description = ''
+        Default `OPENTERFACE_WINDOW_MAX_SIZE`; null leaves the binary default.
+        The value is parsed as WIDTHxHEIGHT and caps the video/content area in
+        physical pixels.
+      '';
     };
 
     throttle = {
