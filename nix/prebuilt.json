@@ -1,10 +1,11 @@
 {
   "version": "1.0.3",
-  "system": "x86_64-linux",
   "binaries": {
-    "openterface-rs": {
-      "url": "https://github.com/vicondoa/openterface-rs/releases/download/v1.0.3/openterface-rs-v1.0.3-x86_64-unknown-linux-gnu.tar.gz",
-      "hash": "sha256-hSjSmVCkMRKlZ34kXpN0C/MtPq/hIl81hkOXFAaeCTA="
+    "x86_64-linux": {
+      "openterface-rs": {
+        "url": "https://github.com/vicondoa/openterface-rs/releases/download/v1.0.3/openterface-rs-v1.0.3-x86_64-unknown-linux-gnu.tar.gz",
+        "hash": "sha256-hSjSmVCkMRKlZ34kXpN0C/MtPq/hIl81hkOXFAaeCTA="
+      }
     }
   }
 }

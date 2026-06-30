@@ -107,6 +107,7 @@
                     };
                     fullscreen = true;
                     useLibdecor = false;
+                    windowMaxSize = "1920x1080";
                     requireGpu = true;
                     paste = {
                       enable = false;
@@ -135,6 +136,7 @@
             grep -q 'OPENTERFACE_IDLE_WATCHDOG_MS' "$wrapper"
             grep -q 'OPENTERFACE_FULLSCREEN' "$wrapper"
             grep -q 'OPENTERFACE_USE_LIBDECOR' "$wrapper"
+            grep -q 'OPENTERFACE_WINDOW_MAX_SIZE' "$wrapper"
             grep -q 'OPENTERFACE_REQUIRE_GPU' "$wrapper"
             grep -q 'OPENTERFACE_ENABLE_PASTE' "$wrapper"
             grep -q 'OPENTERFACE_PASTE_SHORTCUT' "$wrapper"

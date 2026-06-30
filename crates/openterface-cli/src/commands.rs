@@ -113,6 +113,19 @@ fn window_title(base: &str) -> String {
     }
 }
 
+#[cfg(feature = "hardware")]
+fn window_max_size(
+    args: &ConnectArgs,
+    fallback: openterface_core::video::CaptureConfig,
+) -> (u32, u32) {
+    args.window_max_size
+        .map(|crate::cli::WindowSize { width, height }| (width, height))
+        .unwrap_or((
+            fallback.width.min(crate::cli::MAX_WINDOW_DIMENSION),
+            fallback.height.min(crate::cli::MAX_WINDOW_DIMENSION),
+        ))
+}
+
 #[cfg(not(feature = "hardware"))]
 fn reset_impl(_serial: &Path) -> ExitCode {
     eprintln!(
@@ -208,6 +221,7 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
             title: window_title("Openterface KVM (dummy)"),
             debug: args.debug,
             input_available: false,
+            window_max_content_size: Some(window_max_size(args, CaptureConfig::default())),
         };
         return match run(cfg) {
             Ok(()) => ExitCode::Success,
@@ -283,6 +297,7 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
             title: window_title("Openterface KVM (no video)"),
             debug: args.debug,
             input_available,
+            window_max_content_size: Some(window_max_size(args, CaptureConfig::default())),
         };
         return match run(cfg) {
             Ok(()) => ExitCode::Success,
@@ -310,6 +325,7 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
         eprintln!("Failed to configure capture: {e}");
         return ExitCode::Failure;
     }
+    let active_config = video.active_config().unwrap_or_else(CaptureConfig::default);
 
     let (frame_tx, frame_rx) = std::sync::mpsc::sync_channel(4);
     let session = match Session::start(
@@ -333,6 +349,7 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
         title: window_title("Openterface KVM"),
         debug: args.debug,
         input_available,
+        window_max_content_size: Some(window_max_size(args, active_config)),
     };
     if args.debug {
         println!("Debug mode enabled - input events will be logged");
