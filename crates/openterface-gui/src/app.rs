@@ -15,7 +15,9 @@ use openterface_core::pacing::DEFAULT_COMMAND_GAP;
 use openterface_core::paste::PasteOutcome;
 use openterface_core::protocol::hid::modifier_bit;
 use openterface_core::session::Session;
-use openterface_core::video::Frame;
+use openterface_core::video::{
+    select_capture_config_for_viewport, CaptureConfig, FormatDesc, Frame,
+};
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
 use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
@@ -31,6 +33,8 @@ use crate::paste::{
     chord_usages, is_paste_hotkey, MiddleClickPaste, PasteConfig, PasteSource, SuppressedKeys,
 };
 use crate::throttle::{FrameThrottle, ThrottleConfig};
+
+const CAPTURE_RESIZE_DEBOUNCE: Duration = Duration::from_millis(500);
 
 /// Configuration for [`run`].
 pub struct RunConfig {
@@ -49,6 +53,12 @@ pub struct RunConfig {
     pub input_available: bool,
     /// Maximum video/content size `(width, height)` in physical pixels.
     pub window_max_content_size: Option<(u32, u32)>,
+    /// Whether capture should adapt to the displayed physical viewport.
+    pub adaptive_capture: bool,
+    /// Capture modes advertised by the active video device.
+    pub capture_formats: Vec<FormatDesc>,
+    /// Preferred/default capture mode.
+    pub preferred_capture: CaptureConfig,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,8 +68,12 @@ struct WindowSizeHints {
     max: Option<(u32, u32)>,
 }
 
-fn window_size_hints(max_content_size: Option<(u32, u32)>, fullscreen: bool) -> WindowSizeHints {
-    let initial = max_content_size.unwrap_or((1280, 720));
+fn window_size_hints(
+    max_content_size: Option<(u32, u32)>,
+    default_size: (u32, u32),
+    fullscreen: bool,
+) -> WindowSizeHints {
+    let initial = max_content_size.unwrap_or(default_size);
     let min = max_content_size
         .map(|(width, height)| (width.min(640), height.min(480)))
         .unwrap_or((640, 480));
@@ -118,6 +132,9 @@ struct App {
     /// through the same letterbox/pillarbox fit the renderer applies. `None`
     /// until the first frame is shown (no video on screen yet).
     frame_size: Option<(u32, u32)>,
+    requested_capture: Option<CaptureConfig>,
+    pending_capture_viewport: Option<(u32, u32)>,
+    capture_request_after: Option<Instant>,
 }
 
 impl App {
@@ -141,6 +158,9 @@ impl App {
             uploads: 0,
             decode_errors: 0,
             frame_size: None,
+            requested_capture: None,
+            pending_capture_viewport: None,
+            capture_request_after: None,
         }
     }
 
@@ -336,6 +356,55 @@ impl App {
         self.clipboard = None;
     }
 
+    fn request_capture_for_viewport(&mut self, width: u32, height: u32) {
+        if !self.cfg.adaptive_capture || self.cfg.session.is_none() {
+            return;
+        }
+        let config = select_capture_config_for_viewport(
+            &self.cfg.capture_formats,
+            width,
+            height,
+            self.cfg.preferred_capture,
+        );
+        if self.requested_capture == Some(config) {
+            return;
+        }
+        self.requested_capture = Some(config);
+        tracing::info!(
+            width = config.width,
+            height = config.height,
+            fps = config.fps,
+            format = ?config.format,
+            viewport_width = width,
+            viewport_height = height,
+            "requesting adaptive capture mode"
+        );
+        if let Some(session) = &self.cfg.session {
+            session.request_capture_config(config);
+        }
+    }
+
+    fn schedule_capture_for_viewport(&mut self, width: u32, height: u32) {
+        if !self.cfg.adaptive_capture || self.cfg.session.is_none() {
+            return;
+        }
+        self.pending_capture_viewport = Some((width, height));
+        self.capture_request_after = Some(Instant::now() + CAPTURE_RESIZE_DEBOUNCE);
+    }
+
+    fn flush_due_capture_request(&mut self) {
+        let Some(after) = self.capture_request_after else {
+            return;
+        };
+        if Instant::now() < after {
+            return;
+        }
+        self.capture_request_after = None;
+        if let Some((width, height)) = self.pending_capture_viewport.take() {
+            self.request_capture_for_viewport(width, height);
+        }
+    }
+
     /// Pulls any available capture frames, applying the idle-decode throttle,
     /// and uploads the newest decoded image to the GPU.
     fn pump_frames(&mut self) {
@@ -481,7 +550,14 @@ impl ApplicationHandler for App {
         if self.gpu.is_some() {
             return;
         }
-        let size_hints = window_size_hints(self.cfg.window_max_content_size, self.cfg.fullscreen);
+        let size_hints = window_size_hints(
+            self.cfg.window_max_content_size,
+            (
+                self.cfg.preferred_capture.width,
+                self.cfg.preferred_capture.height,
+            ),
+            self.cfg.fullscreen,
+        );
 
         let mut attrs = Window::default_attributes()
             .with_title(self.cfg.title.clone())
@@ -589,6 +665,7 @@ impl ApplicationHandler for App {
             config,
             renderer,
         });
+        self.request_capture_for_viewport(size.width, size.height);
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -606,6 +683,7 @@ impl ApplicationHandler for App {
                 // event-dispatch path, so a burst of resize events coalesces and
                 // input is never blocked by GPU work.
                 self.pending_resize = Some((size.width.max(1), size.height.max(1)));
+                self.schedule_capture_for_viewport(size.width.max(1), size.height.max(1));
                 if let Some(gpu) = self.gpu.as_ref() {
                     gpu.window.request_redraw();
                 }
@@ -756,6 +834,7 @@ impl ApplicationHandler for App {
 
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {
         self.clear_expired_status();
+        self.flush_due_capture_request();
         self.pump_frames();
         // Poll the capture channel at ~250 Hz rather than spinning the event
         // loop continuously (a frame at 30 fps arrives every ~33 ms; 4 ms keeps
@@ -863,11 +942,11 @@ mod tests {
     }
 
     #[test]
-    fn window_size_hints_default_to_legacy_720p_without_cap() {
+    fn window_size_hints_default_to_preferred_capture_without_cap() {
         assert_eq!(
-            window_size_hints(None, false),
+            window_size_hints(None, (1920, 1080), false),
             WindowSizeHints {
-                initial: (1280, 720),
+                initial: (1920, 1080),
                 min: (640, 480),
                 max: None,
             }
@@ -877,7 +956,7 @@ mod tests {
     #[test]
     fn window_size_hints_open_at_cap_and_keep_sensible_minimum() {
         assert_eq!(
-            window_size_hints(Some((1920, 1080)), false),
+            window_size_hints(Some((1920, 1080)), (1280, 720), false),
             WindowSizeHints {
                 initial: (1920, 1080),
                 min: (640, 480),
@@ -889,7 +968,7 @@ mod tests {
     #[test]
     fn window_size_hints_allow_small_caps() {
         assert_eq!(
-            window_size_hints(Some((320, 240)), false),
+            window_size_hints(Some((320, 240)), (1280, 720), false),
             WindowSizeHints {
                 initial: (320, 240),
                 min: (320, 240),
@@ -901,7 +980,7 @@ mod tests {
     #[test]
     fn window_size_hints_keep_native_restore_size_for_fullscreen() {
         assert_eq!(
-            window_size_hints(Some((1920, 1080)), true),
+            window_size_hints(Some((1920, 1080)), (1280, 720), true),
             WindowSizeHints {
                 initial: (1920, 1080),
                 min: (640, 480),

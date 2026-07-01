@@ -21,7 +21,7 @@ Options:
   -h, --help     Print help
 
 $ openterface-rs --version
-openterface-rs 1.1.0
+openterface-rs 1.2.0
 
 $ openterface-rs connect --help
 Connect to KVM device (auto-discovers devices if none specified)
@@ -29,15 +29,44 @@ Connect to KVM device (auto-discovers devices if none specified)
 Usage: openterface-rs connect [OPTIONS]
 
 Options:
-      --video <PATH>                    Video device path (optional - auto-detected if omitted)
-      --serial <PATH>                   Serial device path (optional - auto-detected if omitted)
-  -v, --verbose                         Enable verbose output
-      --no-video                        Disable video capture (even if device detected)
-      --no-serial                       Disable input forwarding (even if device detected)
-      --dummy                           Run in dummy mode (no device connection, GUI only)
-      --debug                           Enable debug output for input events (mouse/keyboard)
-      --window-max-size <WIDTHxHEIGHT>  Maximum video/content size as WIDTHxHEIGHT; defaults to the capture size [env: OPENTERFACE_WINDOW_MAX_SIZE=]
-  -h, --help                            Print help
+      --video <PATH>
+          Video device path (optional - auto-detected if omitted)
+
+      --serial <PATH>
+          Serial device path (optional - auto-detected if omitted)
+
+  -v, --verbose
+          Enable verbose output
+
+      --no-video
+          Disable video capture (even if device detected)
+
+      --no-serial
+          Disable input forwarding (even if device detected)
+
+      --dummy
+          Run in dummy mode (no device connection, GUI only)
+
+      --debug
+          Enable debug output for input events (mouse/keyboard)
+
+      --window-max-size <WIDTHxHEIGHT>
+          Optional maximum video/content window size as WIDTHxHEIGHT
+
+          [env: OPENTERFACE_WINDOW_MAX_SIZE=]
+
+      --capture-sizing <CAPTURE_SIZING>
+          Capture sizing policy
+
+          Possible values:
+          - adaptive: Reconfigure capture to match the displayed physical pixel size
+          - fixed:    Keep the default capture request for the whole session
+
+          [env: OPENTERFACE_CAPTURE_SIZING=]
+          [default: adaptive]
+
+  -h, --help
+          Print help (see a summary with '-h')
 
 $ openterface-rs scan --help
 Scan for Openterface devices

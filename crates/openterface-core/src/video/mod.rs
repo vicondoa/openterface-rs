@@ -67,6 +67,117 @@ impl Default for CaptureConfig {
     }
 }
 
+fn fps_for_candidate(desc: &FormatDesc, preferred_fps: u32) -> u32 {
+    if desc.frame_rates.is_empty() || desc.frame_rates.contains(&preferred_fps) {
+        return preferred_fps;
+    }
+    desc.frame_rates
+        .iter()
+        .copied()
+        .filter(|fps| *fps <= preferred_fps)
+        .max()
+        .or_else(|| desc.frame_rates.iter().copied().min())
+        .unwrap_or(preferred_fps)
+}
+
+fn fitted_rect(frame_w: u32, frame_h: u32, viewport_w: u32, viewport_h: u32) -> (u32, u32) {
+    if frame_w == 0 || frame_h == 0 || viewport_w == 0 || viewport_h == 0 {
+        return (viewport_w, viewport_h);
+    }
+
+    let by_width_h = (u64::from(viewport_w) * u64::from(frame_h)) / u64::from(frame_w);
+    if by_width_h <= u64::from(viewport_h) {
+        (viewport_w, by_width_h.max(1) as u32)
+    } else {
+        let by_height_w = (u64::from(viewport_h) * u64::from(frame_w)) / u64::from(frame_h);
+        (by_height_w.max(1) as u32, viewport_h)
+    }
+}
+
+fn aspect_close(desc: &FormatDesc, preferred: CaptureConfig) -> bool {
+    let lhs = u64::from(desc.width) * u64::from(preferred.height.max(1));
+    let rhs = u64::from(desc.height) * u64::from(preferred.width.max(1));
+    lhs.abs_diff(rhs)
+        <= (u64::from(preferred.width.max(1)) * u64::from(preferred.height.max(1)) / 50)
+}
+
+fn fits_with_tolerance(desc: &FormatDesc, fit_w: u32, fit_h: u32) -> bool {
+    let max_w = u64::from(fit_w) * 110 / 100;
+    let max_h = u64::from(fit_h) * 110 / 100;
+    u64::from(desc.width) <= max_w && u64::from(desc.height) <= max_h
+}
+
+/// Selects a capture mode for a physical display viewport.
+///
+/// The selector prefers the largest supported mode that fits, with a small
+/// downscale tolerance, inside the image rectangle that would be displayed in
+/// `viewport_w` x `viewport_h` physical pixels. If the viewport is smaller than
+/// every supported same-aspect mode, it chooses the smallest same-aspect mode.
+#[must_use]
+pub fn select_capture_config_for_viewport(
+    formats: &[FormatDesc],
+    viewport_w: u32,
+    viewport_h: u32,
+    preferred: CaptureConfig,
+) -> CaptureConfig {
+    if formats.is_empty() || viewport_w == 0 || viewport_h == 0 {
+        return preferred;
+    }
+
+    let (fit_w, fit_h) = fitted_rect(
+        preferred.width.max(1),
+        preferred.height.max(1),
+        viewport_w,
+        viewport_h,
+    );
+
+    let mut candidates: Vec<&FormatDesc> = formats
+        .iter()
+        .filter(|desc| matches!(desc.format, PixelFormat::Mjpeg | PixelFormat::Yuyv))
+        .collect();
+    if candidates.is_empty() {
+        return preferred;
+    }
+    let aspect_candidates: Vec<&FormatDesc> = candidates
+        .iter()
+        .copied()
+        .filter(|desc| aspect_close(desc, preferred))
+        .collect();
+    if !aspect_candidates.is_empty() {
+        candidates = aspect_candidates;
+    }
+
+    let fits = |desc: &&FormatDesc| fits_with_tolerance(desc, fit_w, fit_h);
+    let best = candidates
+        .iter()
+        .copied()
+        .filter(fits)
+        .max_by_key(|desc| {
+            (
+                desc.width as u64 * desc.height as u64,
+                matches!(desc.format, PixelFormat::Mjpeg),
+                desc.frame_rates.contains(&preferred.fps),
+            )
+        })
+        .or_else(|| {
+            candidates.sort_by_key(|desc| {
+                (
+                    desc.width as u64 * desc.height as u64,
+                    !matches!(desc.format, PixelFormat::Mjpeg),
+                )
+            });
+            candidates.into_iter().next()
+        })
+        .expect("non-empty candidates");
+
+    CaptureConfig {
+        width: best.width,
+        height: best.height,
+        fps: fps_for_candidate(best, preferred.fps),
+        format: best.format,
+    }
+}
+
 /// A V4L2 format/resolution candidate without frame-rate policy.
 #[cfg(any(test, feature = "video-backend"))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -228,6 +339,87 @@ mod tests {
         assert_eq!(
             v4l2_format_candidates(CaptureConfig::default()),
             V4L2_FALLBACK_FORMATS.to_vec()
+        );
+    }
+
+    fn desc(format: PixelFormat, width: u32, height: u32, rates: &[u32]) -> FormatDesc {
+        FormatDesc {
+            format,
+            width,
+            height,
+            frame_rates: rates.to_vec(),
+        }
+    }
+
+    fn openterface_formats() -> Vec<FormatDesc> {
+        vec![
+            desc(PixelFormat::Mjpeg, 1920, 1080, &[60, 50, 30]),
+            desc(PixelFormat::Mjpeg, 1360, 768, &[60, 50, 30]),
+            desc(PixelFormat::Mjpeg, 1280, 720, &[60, 50, 30]),
+            desc(PixelFormat::Mjpeg, 800, 600, &[60, 30]),
+            desc(PixelFormat::Yuyv, 1920, 1080, &[10, 5]),
+        ]
+    }
+
+    #[test]
+    fn adaptive_selects_max_when_scaled_viewport_exceeds_capture() {
+        assert_eq!(
+            select_capture_config_for_viewport(
+                &openterface_formats(),
+                2880,
+                1620,
+                CaptureConfig::default(),
+            ),
+            CaptureConfig::default()
+        );
+    }
+
+    #[test]
+    fn adaptive_selects_display_sized_mode_on_scaled_small_window() {
+        assert_eq!(
+            select_capture_config_for_viewport(
+                &openterface_formats(),
+                1440,
+                810,
+                CaptureConfig::default(),
+            ),
+            CaptureConfig {
+                width: 1360,
+                height: 768,
+                fps: 30,
+                format: PixelFormat::Mjpeg,
+            }
+        );
+    }
+
+    #[test]
+    fn adaptive_uses_smallest_mode_when_viewport_is_tiny() {
+        assert_eq!(
+            select_capture_config_for_viewport(
+                &openterface_formats(),
+                640,
+                360,
+                CaptureConfig::default(),
+            ),
+            CaptureConfig {
+                width: 1280,
+                height: 720,
+                fps: 30,
+                format: PixelFormat::Mjpeg,
+            }
+        );
+    }
+
+    #[test]
+    fn adaptive_allows_small_downscale_to_preserve_quality() {
+        assert_eq!(
+            select_capture_config_for_viewport(
+                &openterface_formats(),
+                1920,
+                1000,
+                CaptureConfig::default(),
+            ),
+            CaptureConfig::default()
         );
     }
 

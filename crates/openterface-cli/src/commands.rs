@@ -114,16 +114,9 @@ fn window_title(base: &str) -> String {
 }
 
 #[cfg(feature = "hardware")]
-fn window_max_size(
-    args: &ConnectArgs,
-    fallback: openterface_core::video::CaptureConfig,
-) -> (u32, u32) {
+fn window_max_size(args: &ConnectArgs) -> Option<(u32, u32)> {
     args.window_max_size
         .map(|crate::cli::WindowSize { width, height }| (width, height))
-        .unwrap_or((
-            fallback.width.min(crate::cli::MAX_WINDOW_DIMENSION),
-            fallback.height.min(crate::cli::MAX_WINDOW_DIMENSION),
-        ))
 }
 
 #[cfg(not(feature = "hardware"))]
@@ -221,7 +214,10 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
             title: window_title("Openterface KVM (dummy)"),
             debug: args.debug,
             input_available: false,
-            window_max_content_size: Some(window_max_size(args, CaptureConfig::default())),
+            window_max_content_size: window_max_size(args),
+            adaptive_capture: false,
+            capture_formats: Vec::new(),
+            preferred_capture: CaptureConfig::default(),
         };
         return match run(cfg) {
             Ok(()) => ExitCode::Success,
@@ -297,7 +293,10 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
             title: window_title("Openterface KVM (no video)"),
             debug: args.debug,
             input_available,
-            window_max_content_size: Some(window_max_size(args, CaptureConfig::default())),
+            window_max_content_size: window_max_size(args),
+            adaptive_capture: false,
+            capture_formats: Vec::new(),
+            preferred_capture: CaptureConfig::default(),
         };
         return match run(cfg) {
             Ok(()) => ExitCode::Success,
@@ -314,24 +313,29 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
         return ExitCode::Failure;
     };
 
-    let mut video = match V4l2Source::open(&video_path.to_string_lossy()) {
+    let video = match V4l2Source::open(&video_path.to_string_lossy()) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("Failed to open video device {}: {e}", video_path.display());
             return ExitCode::Failure;
         }
     };
-    if let Err(e) = video.configure(CaptureConfig::default()) {
-        eprintln!("Failed to configure capture: {e}");
-        return ExitCode::Failure;
-    }
-    let active_config = video.active_config().unwrap_or_else(CaptureConfig::default);
+    let capture_formats = match video.supported_formats() {
+        Ok(formats) => formats,
+        Err(e) => {
+            eprintln!(
+                "Warning: could not enumerate capture formats ({e}); adaptive sizing disabled."
+            );
+            Vec::new()
+        }
+    };
+    let preferred_capture = CaptureConfig::default();
 
     let (frame_tx, frame_rx) = std::sync::mpsc::sync_channel(4);
     let session = match Session::start(
         serial,
         video,
-        CaptureConfig::default(),
+        preferred_capture,
         PacingConfig::from_env(),
         frame_tx,
     ) {
@@ -349,7 +353,11 @@ fn connect_impl(args: &ConnectArgs) -> ExitCode {
         title: window_title("Openterface KVM"),
         debug: args.debug,
         input_available,
-        window_max_content_size: Some(window_max_size(args, active_config)),
+        window_max_content_size: window_max_size(args),
+        adaptive_capture: matches!(args.capture_sizing, crate::cli::CaptureSizingArg::Adaptive)
+            && !capture_formats.is_empty(),
+        capture_formats,
+        preferred_capture,
     };
     if args.debug {
         println!("Debug mode enabled - input events will be logged");

@@ -23,6 +23,7 @@ let
     // optionalBoolEnv "OPENTERFACE_FULLSCREEN" cfg.fullscreen
     // optionalEnv "OPENTERFACE_USE_LIBDECOR" (boolEnv cfg.useLibdecor)
     // optionalEnv "OPENTERFACE_WINDOW_MAX_SIZE" cfg.windowMaxSize
+    // optionalEnv "OPENTERFACE_CAPTURE_SIZING" cfg.captureSizing
     // optionalEnv "OPENTERFACE_ENABLE_PASTE" (boolEnv cfg.paste.enable)
     // optionalEnv "OPENTERFACE_PASTE_SHORTCUT" cfg.paste.shortcut
     // optionalEnv "OPENTERFACE_MIDDLE_CLICK_PASTE" cfg.paste.middleClick
@@ -121,6 +122,12 @@ in
         The value is parsed as WIDTHxHEIGHT and caps the video/content area in
         physical pixels.
       '';
+    };
+
+    captureSizing = mkOption {
+      type = types.nullOr (types.enum [ "adaptive" "fixed" ]);
+      default = null;
+      description = "Set `OPENTERFACE_CAPTURE_SIZING` in the installed wrapper.";
     };
 
     throttle = {

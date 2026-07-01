@@ -89,6 +89,19 @@ default undecorated window and does not require client-side decorations. Set
 floating compositor where you want mouse-driven move/resize/close controls).
 `OPENTERFACE_FULLSCREEN=1` starts fullscreen.
 
+## Window is too large or capture resolution is wrong on scaled displays
+
+Wayland compositors size windows in logical pixels, while capture frames are
+physical pixels. On a 1.5x-scaled display, a 1920x1080 logical window occupies
+2880x1620 physical pixels. By default `OPENTERFACE_CAPTURE_SIZING=adaptive`
+selects the best supported capture mode for that physical display size, capped
+by the device's maximum mode. If the window is larger than the selected capture,
+the renderer scales and letterboxes/pillarboxes the image to fit.
+
+Use `OPENTERFACE_CAPTURE_SIZING=fixed` to keep the default capture request for
+the whole session. Use `OPENTERFACE_WINDOW_MAX_SIZE=WIDTHxHEIGHT` only when you
+want to cap the compositor's maximum window size.
+
 ## `connect` fails immediately with no window
 
 A display session needs the `hardware` feature **and** a Wayland session
