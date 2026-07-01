@@ -11,7 +11,7 @@ openterface-rs [GLOBAL OPTIONS] <COMMAND> [COMMAND OPTIONS]
 | Option | Description |
 |--------|-------------|
 | `-v`, `--verbose` | Verbose output. |
-| `--version` | Print the version (`1.1.0`) and exit. |
+| `--version` | Print the version (`1.2.0`) and exit. |
 | `-h`, `--help` | Print help and exit. |
 
 Logging verbosity is also controlled by `RUST_LOG` (see
@@ -25,6 +25,7 @@ Start a KVM session: show the target's video and forward keyboard/mouse.
 openterface-rs connect [--video PATH] [--serial PATH]
                        [--no-video] [--no-serial] [--dummy] [--debug]
                        [--window-max-size WIDTHxHEIGHT]
+                       [--capture-sizing adaptive|fixed]
 ```
 
 | Option | Description |
@@ -35,7 +36,8 @@ openterface-rs connect [--video PATH] [--serial PATH]
 | `--no-video` | Input-only / headless: forward keyboard/mouse with a window showing a static test pattern (no target video). |
 | `--dummy` | No device; GUI with a test pattern (development/CI). |
 | `--debug` | Log each forwarded input event (keyboard events are redacted — no key identity is logged). |
-| `--window-max-size WIDTHxHEIGHT` | Maximum video/content size in physical pixels. Defaults to the negotiated capture size, usually `1920x1080`, so compositors do not configure the video above native resolution. If client-side decorations are enabled, the advertised Wayland maximum includes titlebar/chrome around this content cap. Can also be set with `OPENTERFACE_WINDOW_MAX_SIZE`. |
+| `--window-max-size WIDTHxHEIGHT` | Optional maximum video/content window size in physical pixels. When omitted, the compositor can make the window larger and the renderer scales/letterboxes the current capture. If client-side decorations are enabled, the advertised Wayland maximum includes titlebar/chrome around this content cap. Can also be set with `OPENTERFACE_WINDOW_MAX_SIZE`. |
+| `--capture-sizing adaptive\|fixed` | `adaptive` (default) reconfigures capture to the best supported mode for the displayed physical window size, capped by the device's maximum mode. `fixed` keeps the default capture request for the whole session. Can also be set with `OPENTERFACE_CAPTURE_SIZING`. |
 
 A display session needs the `hardware` feature (see
 [build](../how-to/build.md)); a binary built without it can still run `scan`

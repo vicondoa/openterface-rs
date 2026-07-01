@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 pub(crate) const MAX_WINDOW_DIMENSION: u32 = 32_767;
 
@@ -14,6 +14,14 @@ pub(crate) const MAX_WINDOW_DIMENSION: u32 = 32_767;
 pub(crate) struct WindowSize {
     pub width: u32,
     pub height: u32,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, ValueEnum)]
+pub(crate) enum CaptureSizingArg {
+    /// Reconfigure capture to match the displayed physical pixel size.
+    Adaptive,
+    /// Keep the default capture request for the whole session.
+    Fixed,
 }
 
 impl WindowSize {
@@ -133,7 +141,7 @@ pub(crate) struct ConnectArgs {
     #[arg(long)]
     pub debug: bool,
 
-    /// Maximum video/content size as WIDTHxHEIGHT; defaults to the capture size.
+    /// Optional maximum video/content window size as WIDTHxHEIGHT.
     #[arg(
         long,
         env = "OPENTERFACE_WINDOW_MAX_SIZE",
@@ -141,6 +149,16 @@ pub(crate) struct ConnectArgs {
         value_parser = parse_window_size
     )]
     pub window_max_size: Option<WindowSize>,
+
+    /// Capture sizing policy.
+    #[arg(
+        long,
+        env = "OPENTERFACE_CAPTURE_SIZING",
+        value_enum,
+        ignore_case = true,
+        default_value_t = CaptureSizingArg::Adaptive
+    )]
+    pub capture_sizing: CaptureSizingArg,
 }
 
 /// Options for `reset`.
@@ -251,6 +269,7 @@ mod tests {
         assert!(args.dummy);
         assert!(args.debug);
         assert_eq!(args.window_max_size, Some(WindowSize::new(640, 480)));
+        assert_eq!(args.capture_sizing, CaptureSizingArg::Adaptive);
     }
 
     #[test]
@@ -300,6 +319,16 @@ mod tests {
                     .unwrap_err();
             assert_eq!(err.kind(), clap::error::ErrorKind::ValueValidation);
         }
+    }
+
+    #[test]
+    fn connect_capture_sizing_parses_fixed() {
+        let cli = Cli::try_parse_from(["openterface-rs", "connect", "--capture-sizing", "FIXED"])
+            .unwrap();
+        let Command::Connect(args) = cli.command else {
+            panic!("expected connect");
+        };
+        assert_eq!(args.capture_sizing, CaptureSizingArg::Fixed);
     }
 
     #[test]

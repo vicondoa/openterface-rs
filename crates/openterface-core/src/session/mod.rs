@@ -19,6 +19,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, TrySendError};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -53,6 +54,7 @@ const FRAME_CHANNEL_BOUND: usize = 4;
 /// and joins the worker threads.
 pub struct Session {
     input_tx: Option<Sender<InputEvent>>,
+    capture_request: Option<Arc<Mutex<Option<CaptureConfig>>>>,
     running: Arc<AtomicBool>,
     writer: Option<JoinHandle<()>>,
     capture: Option<JoinHandle<()>>,
@@ -80,6 +82,7 @@ impl Session {
 
         let running = Arc::new(AtomicBool::new(true));
         let (input_tx, input_rx) = std::sync::mpsc::channel::<InputEvent>();
+        let capture_request = Arc::new(Mutex::new(None));
 
         let writer = std::thread::Builder::new()
             .name("openterface-serial".into())
@@ -87,9 +90,10 @@ impl Session {
             .map_err(crate::Error::Io)?;
         let capture = {
             let running = Arc::clone(&running);
+            let capture_request = Arc::clone(&capture_request);
             match std::thread::Builder::new()
                 .name("openterface-capture".into())
-                .spawn(move || capture_loop(&mut video, &frame_tx, &running))
+                .spawn(move || capture_loop(&mut video, &frame_tx, &capture_request, &running))
             {
                 Ok(h) => h,
                 Err(e) => {
@@ -104,6 +108,7 @@ impl Session {
 
         Ok(Session {
             input_tx: Some(input_tx),
+            capture_request: Some(capture_request),
             running,
             writer: Some(writer),
             capture: Some(capture),
@@ -125,6 +130,7 @@ impl Session {
             .map_err(crate::Error::Io)?;
         Ok(Session {
             input_tx: Some(input_tx),
+            capture_request: None,
             running,
             writer: Some(writer),
             capture: None,
@@ -135,6 +141,13 @@ impl Session {
     pub fn send_input(&self, event: InputEvent) {
         if let Some(tx) = &self.input_tx {
             let _ = tx.send(event);
+        }
+    }
+
+    /// Requests a capture mode change on the capture thread.
+    pub fn request_capture_config(&self, config: CaptureConfig) {
+        if let Some(request) = &self.capture_request {
+            *request.lock().unwrap() = Some(config);
         }
     }
 
@@ -250,6 +263,7 @@ impl Session {
         self.running.store(false, Ordering::SeqCst);
         // Dropping the sender unblocks the writer's recv with a disconnect.
         self.input_tx.take();
+        self.capture_request.take();
         if let Some(h) = self.writer.take() {
             let _ = h.join();
         }
@@ -343,11 +357,23 @@ fn gap_remaining(last_write: Option<Instant>, now: Instant) -> Duration {
 }
 
 /// Capture loop: pull frames and forward them (bounded, lossy) until shutdown.
-fn capture_loop<V: VideoSource>(video: &mut V, frame_tx: &SyncSender<Frame>, running: &AtomicBool) {
+fn capture_loop<V: VideoSource>(
+    video: &mut V,
+    frame_tx: &SyncSender<Frame>,
+    capture_request: &Mutex<Option<CaptureConfig>>,
+    running: &AtomicBool,
+) {
     let mut captured: u64 = 0;
     let mut errors: u64 = 0;
     let mut timeouts: u64 = 0;
     while running.load(Ordering::SeqCst) {
+        let requested = capture_request.lock().unwrap().take();
+        if let Some(config) = requested {
+            if apply_capture_config(video, config, &mut errors) {
+                captured = 0;
+                timeouts = 0;
+            }
+        }
         match video.next_frame(CAPTURE_TIMEOUT) {
             Ok(frame) => {
                 captured += 1;
@@ -387,6 +413,54 @@ fn capture_loop<V: VideoSource>(video: &mut V, frame_tx: &SyncSender<Frame>, run
     }
     let _ = video.stop();
     let _ = FRAME_CHANNEL_BOUND;
+}
+
+fn apply_capture_config<V: VideoSource>(
+    video: &mut V,
+    config: CaptureConfig,
+    errors: &mut u64,
+) -> bool {
+    let previous = video.active_config();
+    if previous == Some(config) {
+        return false;
+    }
+    tracing::info!(
+        width = config.width,
+        height = config.height,
+        fps = config.fps,
+        format = ?config.format,
+        "reconfiguring capture"
+    );
+
+    if let Err(err) = video.stop() {
+        *errors += 1;
+        tracing::warn!(errors = *errors, error = %err, "capture stop failed");
+        return false;
+    }
+
+    let result = video.configure(config).and_then(|()| video.start());
+    if result.is_ok() {
+        return true;
+    }
+
+    let err = result.expect_err("checked error");
+    *errors += 1;
+    tracing::warn!(errors = *errors, error = %err, "capture reconfigure failed");
+    if let Some(previous) = previous {
+        return match video.configure(previous).and_then(|()| video.start()) {
+            Ok(()) => true,
+            Err(restore_err) => {
+                *errors += 1;
+                tracing::warn!(errors = *errors, error = %restore_err, "capture restore failed");
+                false
+            }
+        };
+    } else if let Err(start_err) = video.start() {
+        *errors += 1;
+        tracing::warn!(errors = *errors, error = %start_err, "capture restart failed");
+        return false;
+    }
+    true
 }
 
 #[cfg(test)]
@@ -505,6 +579,84 @@ mod tests {
         }
     }
 
+    struct ReconfigVideo {
+        config: CaptureConfig,
+        configured: Arc<std::sync::Mutex<Vec<CaptureConfig>>>,
+        fail_width: Option<u32>,
+        started: bool,
+    }
+
+    impl ReconfigVideo {
+        fn new(configured: Arc<std::sync::Mutex<Vec<CaptureConfig>>>) -> Self {
+            Self {
+                config: CaptureConfig::default(),
+                configured,
+                fail_width: None,
+                started: false,
+            }
+        }
+
+        fn failing_on_width(
+            configured: Arc<std::sync::Mutex<Vec<CaptureConfig>>>,
+            fail_width: u32,
+        ) -> Self {
+            Self {
+                config: CaptureConfig::default(),
+                configured,
+                fail_width: Some(fail_width),
+                started: false,
+            }
+        }
+    }
+
+    impl VideoSource for ReconfigVideo {
+        fn supported_formats(&self) -> Result<Vec<crate::video::FormatDesc>> {
+            Ok(Vec::new())
+        }
+
+        fn configure(&mut self, config: CaptureConfig) -> Result<()> {
+            if self.fail_width == Some(config.width) {
+                return Err(crate::Error::Video(
+                    "scripted configure failure".to_string(),
+                ));
+            }
+            self.config = config;
+            self.configured.lock().unwrap().push(config);
+            Ok(())
+        }
+
+        fn active_config(&self) -> Option<CaptureConfig> {
+            Some(self.config)
+        }
+
+        fn start(&mut self) -> Result<()> {
+            self.started = true;
+            Ok(())
+        }
+
+        fn stop(&mut self) -> Result<()> {
+            self.started = false;
+            Ok(())
+        }
+
+        fn next_frame(&mut self, _timeout: Duration) -> Result<Frame> {
+            if !self.started {
+                return Err(crate::Error::Video("capture not started".to_string()));
+            }
+            std::thread::sleep(Duration::from_millis(5));
+            Ok(Frame {
+                format: self.config.format,
+                width: self.config.width,
+                height: self.config.height,
+                bytes_per_line: 0,
+                color_range: crate::video::ColorRange::Limited,
+                color_space: crate::video::ColorSpace::Bt709,
+                timestamp: Duration::ZERO,
+                data: vec![0xFF, 0xD8, 0xFF, 0xD9],
+            })
+        }
+    }
+
     #[test]
     fn capture_loop_survives_first_frame_warmup() {
         // Regression: the capture loop must pass a timeout that comfortably
@@ -522,7 +674,8 @@ mod tests {
                 warmup: Duration::from_millis(100),
                 resets: resets_in,
             };
-            capture_loop(&mut video, &tx, &r2);
+            let capture_request = Mutex::new(None);
+            capture_loop(&mut video, &tx, &capture_request, &r2);
         });
         let got = rx.recv_timeout(Duration::from_secs(2));
         running.store(false, Ordering::SeqCst);
@@ -539,6 +692,96 @@ mod tests {
             resets.load(Ordering::SeqCst),
             0,
             "capture_loop rebuilt/starved the stream before getting a frame"
+        );
+    }
+
+    #[test]
+    fn session_reconfigures_capture_on_request() {
+        let configured = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (frame_tx, frame_rx) = std::sync::mpsc::sync_channel::<Frame>(FRAME_CHANNEL_BOUND);
+        let mut session = Session::start(
+            VecSerial(sink),
+            ReconfigVideo::new(Arc::clone(&configured)),
+            CaptureConfig::default(),
+            PacingConfig::default(),
+            frame_tx,
+        )
+        .unwrap();
+
+        let desired = CaptureConfig {
+            width: 1280,
+            height: 720,
+            ..CaptureConfig::default()
+        };
+        session.request_capture_config(desired);
+
+        let mut saw_desired = false;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            if let Ok(frame) = frame_rx.recv_timeout(Duration::from_millis(50)) {
+                if (frame.width, frame.height) == (desired.width, desired.height) {
+                    saw_desired = true;
+                    break;
+                }
+            }
+        }
+        session.shutdown();
+
+        assert!(
+            saw_desired,
+            "capture frames should switch to requested size"
+        );
+        assert!(
+            configured.lock().unwrap().contains(&desired),
+            "capture source should be reconfigured to requested size"
+        );
+    }
+
+    #[test]
+    fn session_restores_capture_after_failed_reconfigure() {
+        let configured = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (frame_tx, frame_rx) = std::sync::mpsc::sync_channel::<Frame>(FRAME_CHANNEL_BOUND);
+        let mut session = Session::start(
+            VecSerial(sink),
+            ReconfigVideo::failing_on_width(Arc::clone(&configured), 999),
+            CaptureConfig::default(),
+            PacingConfig::default(),
+            frame_tx,
+        )
+        .unwrap();
+
+        let _ = frame_rx.recv_timeout(Duration::from_millis(200));
+        while frame_rx.try_recv().is_ok() {}
+        session.request_capture_config(CaptureConfig {
+            width: 999,
+            height: 720,
+            ..CaptureConfig::default()
+        });
+
+        let mut saw_default_after_failure = false;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            if let Ok(frame) = frame_rx.recv_timeout(Duration::from_millis(50)) {
+                if (frame.width, frame.height) == (1920, 1080) {
+                    saw_default_after_failure = true;
+                    break;
+                }
+            }
+        }
+        session.shutdown();
+
+        assert!(
+            saw_default_after_failure,
+            "capture should keep producing the previous mode after failed reconfigure"
+        );
+        assert!(
+            configured
+                .lock()
+                .unwrap()
+                .contains(&CaptureConfig::default()),
+            "previous capture config should be restored"
         );
     }
 

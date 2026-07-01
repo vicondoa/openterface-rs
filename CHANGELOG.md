@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-01
+
+### Added
+- Adaptive capture sizing is now the default: the GUI requests the best
+  supported capture mode for the displayed physical window size, capped by the
+  device's maximum mode. Use `connect --capture-sizing fixed` or
+  `OPENTERFACE_CAPTURE_SIZING=fixed` to keep the previous fixed default capture
+  request.
+
+### Changed
+- `connect --window-max-size` / `OPENTERFACE_WINDOW_MAX_SIZE` is now an
+  explicit compositor window cap only. When unset, the compositor may make the
+  window larger and the renderer scales/letterboxes the selected capture mode.
+
 ## [1.1.0] - 2026-06-30
 
 ### Added
@@ -152,7 +166,8 @@ CH9329 injection moving the target cursor).
 - `OPENTERFACE_USE_LIBDECOR=0` falls back to a bare xdg-shell window; decoration
   negotiation is handled by winit.
 
-[Unreleased]: https://github.com/vicondoa/openterface-rs/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/vicondoa/openterface-rs/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/vicondoa/openterface-rs/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/vicondoa/openterface-rs/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/vicondoa/openterface-rs/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/vicondoa/openterface-rs/compare/v1.0.1...v1.0.2
