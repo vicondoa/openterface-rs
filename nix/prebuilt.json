@@ -1,16 +1,16 @@
 {
-  "version": "1.1.0",
+  "version": "1.2.0",
   "binaries": {
     "aarch64-linux": {
       "openterface-rs": {
-        "url": "https://github.com/vicondoa/openterface-rs/releases/download/v1.1.0/openterface-rs-v1.1.0-aarch64-unknown-linux-gnu.tar.gz",
-        "hash": "sha256-18WNK4F7fWSC0thhyknp6XFQqneH/BuJtu+1DLxFyyE="
+        "url": "https://github.com/vicondoa/openterface-rs/releases/download/v1.2.0/openterface-rs-v1.2.0-aarch64-unknown-linux-gnu.tar.gz",
+        "hash": "sha256-AUS9WCbLWb/5EXBF0dQBbZBBP6ba9MW/aINEsdV52XE="
       }
     },
     "x86_64-linux": {
       "openterface-rs": {
-        "url": "https://github.com/vicondoa/openterface-rs/releases/download/v1.1.0/openterface-rs-v1.1.0-x86_64-unknown-linux-gnu.tar.gz",
-        "hash": "sha256-wud79eEWbTON+FVP2/IMiwASc0zFJRhx3Ufe19pl/8E="
+        "url": "https://github.com/vicondoa/openterface-rs/releases/download/v1.2.0/openterface-rs-v1.2.0-x86_64-unknown-linux-gnu.tar.gz",
+        "hash": "sha256-fN4IJADabYqx+Ebi4TFqKMrT1kLNnzVXhpB46UUftKU="
       }
     }
   }
